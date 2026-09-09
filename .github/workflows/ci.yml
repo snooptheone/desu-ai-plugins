@@ -1,0 +1,21 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  evals:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate JSON manifests and eval files
+        run: |
+          find . -name '*.json' -not -path './.git/*' -print0 \
+            | xargs -0 -n1 jq empty
+
+      - name: shunt-agy hook + transport evals
+        run: bash plugins/shunt-agy/evals/run.sh

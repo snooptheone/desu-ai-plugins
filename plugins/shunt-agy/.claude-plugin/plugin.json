@@ -1,0 +1,9 @@
+{
+  "name": "shunt-agy",
+  "description": "Shunts I/O-heavy Claude Code work (bulk file reads, boilerplate generation) to a cheaper model via the agy (Antigravity) CLI, cutting token usage on large reads and predictable codegen.",
+  "version": "0.1.0",
+  "author": {
+    "name": "snooptheone"
+  },
+  "repository": "https://github.com/snooptheone/desu-ai-plugins"
+}

@@ -1,0 +1,38 @@
+desu-ai-plugins
+Copyright 2026 Anderson S. (snooptheone)
+
+This product is licensed under the Apache License, Version 2.0.
+See the LICENSE file for the full license text.
+
+== Third-party attribution ==
+
+The `plugins/shunt-agy` plugin is an independent adaptation of Spotify's
+"shunt" plugin, originally published at:
+
+  https://github.com/spotify/portal-ai-plugins/tree/main/plugins/shunt
+
+and described in the Spotify Engineering blog post:
+
+  https://engineering.atspotify.com/2026/9/portal-by-spotify-cut-my-claude-code-token-usage-by-90
+
+The original `shunt` is Copyright Spotify AB, licensed under the Apache
+License, Version 2.0. shunt-agy retains the same three-layer design (hooks
+that block large reads, scripts that delegate to a worker model, skills
+that teach Claude when to call them) and, in several files, closely follows
+the structure and wording of the original hooks and scripts.
+
+Changes made in this derivative work:
+  - The delegation target was changed from Spotify's internal Portal CLI /
+    AiKA mode registry to the publicly available `agy` (Antigravity) CLI
+    from Google, so the plugin works for anyone with `agy` installed
+    instead of requiring access to Spotify's internal platform.
+  - `scripts/lib/aika.sh` was replaced with `scripts/lib/worker.sh`, using
+    agy's `stream-json` headless input/output protocol instead of the
+    Portal CLI's `aika:invoke-chat` action.
+  - Benchmark fixtures under `plugins/shunt-agy/evals/fixtures/` were
+    copied verbatim from the original repository (same license) to keep
+    the token-savings measurements comparable.
+
+This project is not affiliated with, endorsed by, or sponsored by Spotify
+AB or Google LLC. "Spotify" and "Antigravity" are trademarks of their
+respective owners.
