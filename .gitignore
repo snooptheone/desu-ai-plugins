@@ -11,3 +11,6 @@ CLAUDE.local.md
 
 # Scratch / temp
 *.tmp
+
+# Python
+__pycache__/

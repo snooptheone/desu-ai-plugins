@@ -24,11 +24,18 @@ multi-file reads, **64%** on a small source+test pair (see
 [`plugins/shunt-agy/README.md`](plugins/shunt-agy/README.md#benchmarks) for
 how to reproduce these numbers yourself).
 
+### [unifi](plugins/unifi)
+
+A read-only view of your UniFi network — clients, devices and their stats, networks/VLANs, WiFi,
+firewall policies, DNS and VPN — through the official UniFi Network API. Read-only for now; nothing
+it does can change your network. See [`plugins/unifi/README.md`](plugins/unifi/README.md).
+
 ## Installation
 
 ```bash
 claude plugin marketplace add snooptheone/desu-ai-plugins
 claude plugin install shunt-agy@desu-ai-plugins
+claude plugin install unifi@desu-ai-plugins
 ```
 
 See [`plugins/shunt-agy/README.md`](plugins/shunt-agy/README.md) for
@@ -56,7 +63,7 @@ Spotify AB or Google LLC**.
 
 ## AI assistance disclosure
 
-Substantial parts of this repository — the `shunt-agy` adaptation itself, its tests
+Substantial parts of this repository — the `shunt-agy` adaptation itself, the `unifi` plugin, its tests
 (`evals/`), CI setup, and documentation — were written with AI assistance (Claude Code).
 Design decisions, testing, and review were done by a human; see the commit history and
 [`AGENTS.md`](AGENTS.md) for what was verified along the way (real end-to-end runs against

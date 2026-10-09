@@ -17,6 +17,17 @@
       "repository": "https://github.com/snooptheone/desu-ai-plugins",
       "source": "./plugins/shunt-agy",
       "category": "developer-tools"
+    },
+    {
+      "name": "unifi",
+      "description": "Read-only view of your UniFi network (clients, devices, networks, WiFi, firewall, VPN) through the official UniFi Network API, from the cloud or straight from your console.",
+      "version": "0.3.1",
+      "author": {
+        "name": "snooptheone"
+      },
+      "repository": "https://github.com/snooptheone/desu-ai-plugins",
+      "source": "./plugins/unifi",
+      "category": "productivity"
     }
   ]
 }
