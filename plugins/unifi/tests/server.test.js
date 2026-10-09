@@ -4,21 +4,42 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const path = require('node:path');
-const { spawn } = require('node:child_process');
+const https = require('node:https');
+const fs = require('node:fs');
+const os = require('node:os');
+const { spawn, execFileSync } = require('node:child_process');
 
 const SERVER = path.join(__dirname, '..', 'mcp', 'server.js');
 const CP = '/v1/connector/consoles/C1/proxy/network/integration/v1';
+const LP = '/proxy/network/integration/v1';
 
-function fakeApi(log) {
-  return http.createServer((req, res) => {
+// A throwaway self-signed certificate, like the one a UniFi console serves. Needs the openssl CLI.
+function selfSigned() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'unifi-test-'));
+  const key = path.join(dir, 'k');
+  const crt = path.join(dir, 'c');
+  try {
+    execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', '/CN=unifi.local', '-keyout', key, '-out', crt], { stdio: 'ignore' });
+    return { key: fs.readFileSync(key), cert: fs.readFileSync(crt) };
+  } catch {
+    return null;
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function fakeApi(log, tls) {
+  const make = tls ? (fn) => https.createServer(tls, fn) : (fn) => http.createServer(fn);
+  return make((req, res) => {
     const u = new URL(req.url, 'http://x');
     log.push([req.method, u.pathname, req.headers['x-api-key']]);
     const out = (code, body) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
     if (req.headers['x-api-key'] !== 'k') return out(401, { error: 'no' });
     if (u.pathname === '/v1/hosts') return out(200, { data: [{ id: 'C1', type: 'console' }] });
-    if (u.pathname === `${CP}/info`) return out(200, { applicationVersion: '10' });
-    if (u.pathname === `${CP}/sites`) return out(200, { count: 1, totalCount: 1, data: [{ id: 'S1', name: 'Default' }] });
-    if (u.pathname === `${CP}/sites/S1/clients`) {
+    const rel = u.pathname.startsWith(LP) ? CP + u.pathname.slice(LP.length) : u.pathname;
+    if (rel === `${CP}/info`) return out(200, { applicationVersion: '10' });
+    if (rel === `${CP}/sites`) return out(200, { count: 1, totalCount: 1, data: [{ id: 'S1', name: 'Default' }] });
+    if (rel === `${CP}/sites/S1/clients`) {
       const off = Number(u.searchParams.get('offset'));
       const lim = Number(u.searchParams.get('limit'));
       const rows = Array.from({ length: 250 }, (_, n) => ({ n, name: `c${n}`, ip: '10.0.0.1' })).slice(off, off + lim);
@@ -28,11 +49,12 @@ function fakeApi(log) {
   });
 }
 
-async function withServer(env, fn) {
+async function withServer(env, fn, { local } = {}) {
   const log = [];
-  const api = fakeApi(log);
+  const api = fakeApi(log, local);
   await new Promise((r) => api.listen(0, '127.0.0.1', r));
-  const childEnv = { ...process.env, UNIFI_API_BASE: `http://127.0.0.1:${api.address().port}`, ...env };
+  const addr = `127.0.0.1:${api.address().port}`;
+  const childEnv = { ...process.env, UNIFI_API_BASE: `http://${addr}`, UNIFI_CONSOLE_HOST: undefined, ...(local ? { UNIFI_CONSOLE_HOST: addr } : {}), ...env };
   for (const k of Object.keys(childEnv)) if (childEnv[k] === undefined) delete childEnv[k];
   const child = spawn(process.execPath, [SERVER], { env: childEnv, stdio: ['pipe', 'pipe', 'inherit'] });
   const pending = new Map();
@@ -115,4 +137,36 @@ test('bad key surfaces the HTTP error', () => withServer({ UNIFI_API_KEY: 'bad' 
 test('unknown tool and unknown method', () => withServer({ UNIFI_API_KEY: 'k' }, async ({ call, rpc }) => {
   assert.equal((await call('unifi_nope', {})).isError, true);
   assert.equal((await rpc('nope')).error.code, -32601);
+}));
+
+const tls = selfSigned();
+const localTest = tls ? test : test.skip;
+
+localTest('local mode: self-signed console, no connector, GET only', () => withServer({ UNIFI_API_KEY: 'k' }, async ({ call, log }) => {
+  assert.deepEqual(JSON.parse(text(await call('unifi_info', {}))), { applicationVersion: '10' });
+  assert.equal(JSON.parse(text(await call('unifi_clients', {}))).length, 250);
+  assert.ok(log.length > 0);
+  assert.ok(log.every(([m, p, k]) => m === 'GET' && k === 'k' && p.startsWith(LP) && p !== '/v1/hosts'));
+}, { local: tls }));
+
+localTest('local mode: wrong key is an HTTP error', () => withServer({ UNIFI_API_KEY: 'bad' }, async ({ call }) => {
+  const r = await call('unifi_info', {});
+  assert.equal(r.isError, true);
+  assert.match(text(r), /401/);
+}, { local: tls }));
+
+test('an unset console host (empty or placeholder) means cloud mode', async () => {
+  for (const host of ['', '${user_config.console_host}']) {
+    await withServer({ UNIFI_API_KEY: 'k', UNIFI_CONSOLE_HOST: host }, async ({ call, log }) => {
+      assert.deepEqual(JSON.parse(text(await call('unifi_info', {}))), { applicationVersion: '10' });
+      assert.ok(log.some(([, p]) => p === '/v1/hosts'));
+    });
+  }
+});
+
+test('an invalid console host is rejected before any request', () => withServer({ UNIFI_API_KEY: 'k', UNIFI_CONSOLE_HOST: 'evil.example/x@y' }, async ({ call, log }) => {
+  const r = await call('unifi_info', {});
+  assert.equal(r.isError, true);
+  assert.match(text(r), /Invalid console host/);
+  assert.equal(log.length, 0);
 }));

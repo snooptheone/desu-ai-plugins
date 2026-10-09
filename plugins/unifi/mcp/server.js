@@ -1,9 +1,15 @@
 #!/usr/bin/env node
 // UniFi Network MCP server (stdio, no dependencies, Node 18+).
-// Talks to the official Network Integration API through the Site Manager Connector:
-//   https://api.ui.com/v1/connector/consoles/<console>/proxy/network/integration/v1
+// Talks to the official Network Integration API in one of two modes:
+//   cloud (default): through the Site Manager Connector
+//     https://api.ui.com/v1/connector/consoles/<console>/proxy/network/integration/v1
+//   local: when UNIFI_CONSOLE_HOST is set, straight to the console
+//     https://<host>/proxy/network/integration/v1
+//     The console's certificate is self-signed, so TLS verification is skipped in this mode.
 // This file only sends GET requests.
 'use strict';
+
+const https = require('node:https');
 
 const BASE = (process.env.UNIFI_API_BASE || 'https://api.ui.com').replace(/\/+$/, '');
 const PAGE = 200;
@@ -63,17 +69,49 @@ function apiKey() {
   return key;
 }
 
+// Local mode host (host or host:port), or null for cloud mode. An unset plugin option can reach us
+// as an empty string or as the literal "${user_config.…}" placeholder; both mean "not set".
+function localHost() {
+  const h = (process.env.UNIFI_CONSOLE_HOST || '').trim();
+  if (!h || h.includes('${')) return null;
+  if (!/^[A-Za-z0-9.\-:[\]]+$/.test(h)) throw new Error(`Invalid console host: ${h}`);
+  return h;
+}
+
+function httpsGet(url, headers) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(url);
+    const req = https.request(
+      { hostname: u.hostname, port: u.port || 443, path: u.pathname + u.search, headers, timeout: 30000, rejectUnauthorized: false },
+      (res) => {
+        let text = '';
+        res.setEncoding('utf8');
+        res.on('data', (d) => { text += d; });
+        res.on('end', () => resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, text }));
+      },
+    );
+    req.on('timeout', () => req.destroy(new Error('timeout')));
+    req.on('error', reject);
+    req.end();
+  });
+}
+
 async function get(url) {
+  const headers = { 'X-API-KEY': apiKey(), Accept: 'application/json' };
   let res;
   try {
-    res = await fetch(url, { headers: { 'X-API-KEY': apiKey(), Accept: 'application/json' }, signal: AbortSignal.timeout(30000) });
+    if (localHost()) {
+      res = await httpsGet(url, headers);
+    } else {
+      const r = await fetch(url, { headers, signal: AbortSignal.timeout(30000) });
+      res = { ok: r.ok, status: r.status, text: await r.text() };
+    }
   } catch (e) {
     if (e.message.startsWith('UNIFI_API_KEY')) throw e;
     throw new Error(`Connection failed: ${e.cause ? e.cause.message : e.message}`);
   }
-  const text = await res.text();
-  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url.split('?')[0]}: ${text.slice(0, 500)}`);
-  return text ? JSON.parse(text) : null;
+  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url.split('?')[0]}: ${res.text.slice(0, 500)}`);
+  return res.text ? JSON.parse(res.text) : null;
 }
 
 // Follow offset/limit pagination and return the concatenated `data` list.
@@ -103,6 +141,8 @@ async function consoleId() {
 
 const enc = encodeURIComponent;
 async function root() {
+  const host = localHost();
+  if (host) return `https://${host}/proxy/network/integration/v1`;
   return `${BASE}/v1/connector/consoles/${enc(await consoleId())}/proxy/network/integration/v1`;
 }
 

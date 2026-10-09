@@ -20,8 +20,8 @@
     },
     {
       "name": "unifi",
-      "description": "Read-only view of your UniFi network (clients, devices, networks, WiFi, firewall, VPN) through the official UniFi Network API.",
-      "version": "0.2.0",
+      "description": "Read-only view of your UniFi network (clients, devices, networks, WiFi, firewall, VPN) through the official UniFi Network API, from the cloud or straight from your console.",
+      "version": "0.3.0",
       "author": {
         "name": "snooptheone"
       },

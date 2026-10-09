@@ -29,5 +29,5 @@ plugin is read-only for now and describe what they would do in the UniFi UI.
   question needs; this saves a lot of tokens on clients and firewall policies.
 - Client and device output includes MAC and IP addresses. Show only what the question needs.
 - Several consoles: set `UNIFI_CONSOLE_ID` in the environment that starts Claude Code. Several sites: pass `site`.
-- Requests go through the cloud Site Manager Connector: 100 requests per minute per console, console
-  firmware 5.0.3 or later.
+- Cloud mode goes through the Site Manager Connector (100 requests per minute per console, firmware
+  5.0.3 or later); local mode, when the user set a console address, talks to the console directly.
