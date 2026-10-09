@@ -19,3 +19,39 @@ jobs:
 
       - name: shunt-agy hook + transport evals
         run: bash plugins/shunt-agy/evals/run.sh
+
+  marketplace:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Every marketplace entry has a matching plugin manifest
+        run: |
+          jq -r '.plugins[] | "\(.name) \(.source)"' .claude-plugin/marketplace.json |
+          while read -r name source; do
+            test "$(jq -r .name "$source/.claude-plugin/plugin.json")" = "$name" \
+              || { echo "::error::$source manifest does not match '$name'"; exit 1; }
+          done
+
+  unifi:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.9", "3.13"]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Script compiles and runs
+        run: |
+          python3 -m py_compile plugins/unifi/scripts/unifi.py
+          python3 plugins/unifi/scripts/unifi.py --help > /dev/null
+
+      - name: Script stays read-only
+        run: |
+          if grep -nE 'POST|PUT|PATCH|DELETE' plugins/unifi/scripts/unifi.py; then
+            echo "::error::unifi.py must only send GET requests"; exit 1
+          fi

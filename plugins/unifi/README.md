@@ -45,10 +45,10 @@ console firmware 5.0.3 or later.
 ## Running the script directly
 
 ```bash
-python plugins/unifi/scripts/unifi.py clients
-python plugins/unifi/scripts/unifi.py networks --json
-python plugins/unifi/scripts/unifi.py get /dpi/categories
-python plugins/unifi/scripts/unifi.py --help        # all resources
+python3 plugins/unifi/scripts/unifi.py clients
+python3 plugins/unifi/scripts/unifi.py networks --json
+python3 plugins/unifi/scripts/unifi.py get /dpi/categories
+python3 plugins/unifi/scripts/unifi.py --help        # all resources
 ```
 
 ## Known limitations

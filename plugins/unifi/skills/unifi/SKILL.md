@@ -15,7 +15,7 @@ network. If the user asks for a change (block a device, edit a rule, restart an 
 is read-only and describe what they would do in the UniFi UI.
 
 ```bash
-python ${CLAUDE_PLUGIN_ROOT}/scripts/unifi.py <resource> [id] [--site SITE] [--json]
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/unifi.py <resource> [id] [--site SITE] [--json]
 ```
 
 | Resource | Shows |
@@ -30,7 +30,7 @@ python ${CLAUDE_PLUGIN_ROOT}/scripts/unifi.py <resource> [id] [--site SITE] [--j
 | `get <path>` | Any other GET path under `/v1`, for example `get /dpi/categories` |
 
 Lists are fetched in full (200 per page). `--json` prints compact JSON; the default is indented.
-Filter large output with `python -c`/`jq` instead of reading it all, and summarize the fields the
+Filter large output with `python3 -c`/`jq` instead of reading it all, and summarize the fields the
 question needs.
 
 ## Setup (once)
@@ -38,7 +38,7 @@ question needs.
 1. Create an API key at https://unifi.ui.com/settings/api-keys.
 2. Make it available to the script: `export UNIFI_API_KEY=...` in the shell that starts Claude Code, or
    save it to `~/.config/unifi-skill/api-key` with `chmod 600`. Never paste the key into the chat.
-3. Test: `python ${CLAUDE_PLUGIN_ROOT}/scripts/unifi.py info` prints the Network version.
+3. Test: `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/unifi.py info` prints the Network version.
 
 If there are several consoles set `UNIFI_CONSOLE_ID`; for several sites pass `--site`.
 

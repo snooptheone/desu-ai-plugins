@@ -17,6 +17,7 @@ Optional: UNIFI_CONSOLE_ID (default: your only console), UNIFI_API_BASE.
 import argparse
 import json
 import os
+import ssl
 import stat
 import sys
 import urllib.error
@@ -53,7 +54,7 @@ def api_key() -> str:
         return key.strip()
     path = Path(os.environ.get("UNIFI_API_KEY_FILE", "~/.config/unifi-skill/api-key")).expanduser()
     if path.is_file():
-        if path.stat().st_mode & (stat.S_IRWXG | stat.S_IRWXO):
+        if os.name != "nt" and path.stat().st_mode & (stat.S_IRWXG | stat.S_IRWXO):
             sys.exit(f"{path} is readable by others; run: chmod 600 {path}")
         return path.read_text().strip()
     sys.exit("No API key: set UNIFI_API_KEY or put it in ~/.config/unifi-skill/api-key "
@@ -69,7 +70,10 @@ def get(url: str, key: str):
     except urllib.error.HTTPError as e:
         sys.exit(f"HTTP {e.code} for {url.split('?')[0]}: {e.read().decode()[:500]}")
     except urllib.error.URLError as e:
-        sys.exit(f"Connection failed: {e.reason}")
+        hint = (" (Python has no CA certificates: on macOS run 'Install Certificates.command', "
+                "or install certifi and set SSL_CERT_FILE)"
+                if isinstance(e.reason, ssl.SSLCertVerificationError) else "")
+        sys.exit(f"Connection failed: {e.reason}{hint}")
 
 
 def get_all(url: str, key: str):
