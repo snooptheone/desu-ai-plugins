@@ -10,7 +10,8 @@ A marketplace repo for Claude Code plugins. Currently ships two plugins:
 - `plugins/unifi/` — UniFi Network MCP server (`mcp/server.js`, one Node.js file, no
   dependencies) plus a skill. Read tools are GET-only. Write tools exist only when
   `UNIFI_ENABLE_WRITES=true` and always go plan -> `unifi_apply_change` (one-use code, exact
-  confirmation phrase, resource unchanged, change logged first). Do not weaken that flow, and
+  confirmation phrase, resource unchanged, change logged first), and `unifi_apply_change` stays flagged
+  `_meta["anthropic/requiresUserInteraction"]` so Claude Code always prompts the person. Do not weaken that flow, and
   do not add a write that skips it. Tests: `node --test plugins/unifi/tests/server.test.js
   plugins/unifi/tests/expiry.test.js`; CI runs them on Linux (Node 18 and 22) and must pass
   before a PR is merged. macOS and Windows are not tested yet.

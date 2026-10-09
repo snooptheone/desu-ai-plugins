@@ -21,7 +21,7 @@
     {
       "name": "unifi",
       "description": "Your UniFi network in Claude: read clients, devices, networks, WiFi, firewall and VPN through the official UniFi Network API. Optional, off by default: a few changes, each applied only after your explicit approval.",
-      "version": "0.4.0",
+      "version": "0.4.1",
       "author": {
         "name": "snooptheone"
       },

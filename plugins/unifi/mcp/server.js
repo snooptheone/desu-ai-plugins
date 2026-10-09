@@ -90,7 +90,7 @@ function httpsRequest(method, url, headers, body) {
   return new Promise((resolve, reject) => {
     const u = new URL(url);
     const req = https.request(
-      { method, hostname: u.hostname, port: u.port || 443, path: u.pathname + u.search, headers, timeout: 30000, rejectUnauthorized: false },
+      { method, hostname: u.hostname.replace(/^\[|\]$/g, ''), port: u.port || 443, path: u.pathname + u.search, headers, timeout: 30000, rejectUnauthorized: false },
       (res) => {
         let text = '';
         res.setEncoding('utf8');
@@ -152,6 +152,23 @@ async function consoleId() {
 }
 
 const enc = encodeURIComponent;
+
+// A value that goes into one URL path segment (an id or a site). '.' and '..' would be resolved by
+// the URL parser and walk out of the integration API.
+function seg(value, what) {
+  const v = String(value ?? '');
+  if (!v || v === '.' || v === '..' || /[/\\\u0000-\u001f]/.test(v)) throw new Error(`Invalid ${what}`);
+  return enc(v);
+}
+
+function checkPath(p) {
+  for (const part of p.split('?')[0].split('/')) {
+    let d;
+    try { d = decodeURIComponent(part); } catch { throw new Error('Invalid path'); }
+    if (d === '.' || d === '..' || d.includes('\\')) throw new Error("path must not contain '.' or '..' segments");
+  }
+}
+
 async function root() {
   const host = localHost();
   if (host) return `https://${host}/proxy/network/integration/v1`;
@@ -189,6 +206,7 @@ const apiPath = async (p) => `${await root()}/${p}`;
 const apiGet = async (p) => get(await apiPath(p));
 
 function makePlan({ summary, confirmation, method, path: p, body, before, readCurrent, details }) {
+  for (const [c, x] of plans) if (Date.now() > x.expires) plans.delete(c);
   const approvalCode = crypto.randomBytes(5).toString('hex').toUpperCase();
   plans.set(approvalCode, { confirmation, method, path: p, body, before, readCurrent, summary, expires: Date.now() + PLAN_TTL_MS });
   return {
@@ -203,7 +221,8 @@ function makePlan({ summary, confirmation, method, path: p, body, before, readCu
 
 async function planRestartDevice(a) {
   if (!a.deviceId) throw new Error('deviceId is required');
-  const p = `sites/${enc(await resolveSite(a.site))}/devices/${enc(a.deviceId)}`;
+  const deviceId = seg(a.deviceId, 'deviceId');
+  const p = `sites/${seg(await resolveSite(a.site), 'site')}/devices/${deviceId}`;
   const read = async () => {
     const d = await apiGet(p);
     return { id: d.id, name: d.name, model: d.model, state: d.state };
@@ -220,6 +239,7 @@ const POLICY_PUT_KEYS = ['action', 'connectionStateFilter', 'description', 'dest
 
 async function planSetFirewallPolicy(a) {
   if (!a.policyId) throw new Error('policyId is required');
+  const policyId = seg(a.policyId, 'policyId');
   const wanted = {};
   for (const k of ['enabled', 'loggingEnabled']) {
     if (a[k] === undefined) continue;
@@ -227,8 +247,8 @@ async function planSetFirewallPolicy(a) {
     wanted[k] = a[k];
   }
   if (!Object.keys(wanted).length) throw new Error('Pass enabled and/or loggingEnabled');
-  const site = enc(await resolveSite(a.site));
-  const p = `sites/${site}/firewall/policies/${enc(a.policyId)}`;
+  const site = seg(await resolveSite(a.site), 'site');
+  const p = `sites/${site}/firewall/policies/${policyId}`;
   const read = () => apiGet(p);
   const cur = await read();
   const origin = cur.metadata && cur.metadata.origin;
@@ -254,12 +274,13 @@ const sortedJson = (o) => JSON.stringify(o, (k, v) => (v && typeof v === 'object
 
 async function planUpdateTrafficList(a) {
   if (!a.listId) throw new Error('listId is required');
+  const listId = seg(a.listId, 'listId');
   if (!Array.isArray(a.items) || !a.items.length || !a.items.every((i) => i && typeof i === 'object' && i.type && i.value !== undefined)) {
     throw new Error('items must be a non-empty array of objects like {"type":"PORT_NUMBER","value":22}; it replaces the whole list');
   }
   if (a.name !== undefined && (typeof a.name !== 'string' || !a.name)) throw new Error('name must be a non-empty string');
-  const site = enc(await resolveSite(a.site));
-  const p = `sites/${site}/traffic-matching-lists/${enc(a.listId)}`;
+  const site = seg(await resolveSite(a.site), 'site');
+  const p = `sites/${site}/traffic-matching-lists/${listId}`;
   const read = () => apiGet(p);
   const cur = await read();
   const body = { name: a.name ?? cur.name, type: cur.type, items: a.items };
@@ -281,7 +302,7 @@ async function planUpdateTrafficList(a) {
 async function applyChange(a) {
   const code = String(a.approvalCode || '').trim().toUpperCase();
   const plan = plans.get(code);
-  if (!plan) throw new Error('Unknown or already used approval code. Ask for a new plan.');
+  if (!plan) throw new Error('Unknown, expired or already used approval code. Ask for a new plan.');
   if (Date.now() > plan.expires) {
     plans.delete(code);
     throw new Error('Approval code expired. Ask for a new plan.');
@@ -291,14 +312,20 @@ async function applyChange(a) {
   if (!isDeepStrictEqual(await plan.readCurrent(), plan.before)) throw new Error('The resource changed since the plan was made. Ask for a new plan.');
   const entry = { confirmation: plan.confirmation, method: plan.method, path: plan.path, body: plan.body, before: plan.before };
   logChange({ phase: 'attempt', ...entry });
+  let result;
   try {
-    const result = await request(plan.method, await apiPath(plan.path), plan.body);
-    logChange({ phase: 'applied', confirmation: plan.confirmation, result });
-    return { applied: plan.confirmation, result, log: path.join(dataDir(), 'changes.jsonl') };
+    result = await request(plan.method, await apiPath(plan.path), plan.body);
   } catch (e) {
-    logChange({ phase: 'failed', confirmation: plan.confirmation, error: e.message });
+    try { logChange({ phase: 'failed', confirmation: plan.confirmation, error: e.message }); } catch { /* the request error matters more */ }
     throw e;
   }
+  const out = { applied: plan.confirmation, result, log: path.join(dataDir(), 'changes.jsonl') };
+  try {
+    logChange({ phase: 'applied', confirmation: plan.confirmation, result });
+  } catch (e) {
+    out.logWarning = `The change WAS applied, but writing the result to the log failed: ${e.message}`;
+  }
+  return out;
 }
 
 const idProp = (what) => ({ type: 'string', description: what });
@@ -325,6 +352,8 @@ const WRITE_TOOLS = [
       required: ['approvalCode', 'confirmation'],
     },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+    // Claude Code shows its permission prompt on every call, whatever the permission mode or allow rules.
+    _meta: { 'anthropic/requiresUserInteraction': true },
   },
 ];
 const WRITE_HANDLERS = {
@@ -342,16 +371,17 @@ async function callTool(name, args = {}) {
   if (name === 'unifi_get') {
     const p = String(args.path || '');
     if (!p || p.includes('://') || p.startsWith('//')) throw new Error('path must look like /sites, not a URL');
+    checkPath(p);
     return project(await getAll(`${await root()}/${p.replace(/^\/+/, '')}`), args.fields);
   }
   const entry = RESOURCES[name.replace(/^unifi_/, '')];
   if (!entry) throw new Error(`Unknown tool ${name}`);
   let [, path, idName] = entry;
-  if (path.includes('{site}')) path = path.replace('{site}', enc(await resolveSite(args.site)));
   if (idName) {
     if (!args[idName]) throw new Error(`${idName} is required`);
-    path = path.replace('{id}', enc(args[idName]));
+    path = path.replace('{id}', seg(args[idName], idName));
   }
+  if (path.includes('{site}')) path = path.replace('{site}', seg(await resolveSite(args.site), 'site'));
   return project(await getAll(`${await root()}/${path}`), args.fields);
 }
 
@@ -398,7 +428,10 @@ if (require.main === module) {
       const line = buf.slice(0, i).trim();
       buf = buf.slice(i + 1);
       if (!line) continue;
-      try { handle(JSON.parse(line)); } catch { send({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } }); }
+      let msg;
+      try { msg = JSON.parse(line); } catch { send({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } }); continue; }
+      if (!msg || typeof msg !== 'object' || Array.isArray(msg)) { send({ jsonrpc: '2.0', id: null, error: { code: -32600, message: 'Invalid Request' } }); continue; }
+      handle(msg);
     }
   });
 }

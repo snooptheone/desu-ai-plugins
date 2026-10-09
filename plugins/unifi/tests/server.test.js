@@ -116,7 +116,7 @@ async function withServer(env, fn, { local } = {}) {
   });
   const call = async (name, args) => (await rpc('tools/call', { name, arguments: args })).result;
   try {
-    return await fn({ rpc, call, log, state });
+    return await fn({ rpc, call, log, state, raw: (line) => child.stdin.write(`${line}\n`) });
   } finally {
     child.kill();
     api.close();
@@ -337,4 +337,55 @@ test('apply refuses to run if the change cannot be logged', async () => {
     assert.equal(r.isError, true);
     assert.deepEqual(state.writes, []);
   });
+});
+
+// ── audit findings ──
+test('apply always asks the person: marked requiresUserInteraction, and only apply', () => withServer(WRITE_ENV(), async ({ rpc }) => {
+  const { tools } = (await rpc('tools/list')).result;
+  for (const t of tools) {
+    const flagged = Boolean(t._meta && t._meta['anthropic/requiresUserInteraction'] === true);
+    assert.equal(flagged, t.name === 'unifi_apply_change', t.name);
+  }
+}));
+
+test('dot segments in a path or an id never leave the integration API', () => withServer(WRITE_ENV(), async ({ call, log }) => {
+  for (const p of ['/../../v1/hosts', '/sites/%2e%2e/x', '/a/./b', '/sites\\x', '/%zz']) {
+    assert.equal((await call('unifi_get', { path: p })).isError, true, p);
+  }
+  for (const [tool, args] of [['unifi_device', { deviceId: '..' }], ['unifi_device', { deviceId: 'a/b' }], ['unifi_clients', { site: '..' }],
+    ['unifi_plan_restart_device', { deviceId: '..' }], ['unifi_plan_restart_device', { deviceId: 'D1', site: '.' }],
+    ['unifi_plan_set_firewall_policy', { policyId: '..', enabled: false }], ['unifi_plan_update_traffic_list', { listId: 'a/b', items: [{ type: 'PORT_NUMBER', value: 1 }] }]]) {
+    const r = await call(tool, args);
+    assert.equal(r.isError, true, `${tool} ${JSON.stringify(args)}`);
+    assert.match(text(r), /Invalid/);
+  }
+  assert.equal(log.length, 0);
+}));
+
+test('junk lines on stdin do not stop the server', () => withServer({ UNIFI_API_KEY: 'k' }, async ({ call, raw }) => {
+  for (const line of ['null', '42', '[]', '"x"', '{not json', 'true']) raw(line);
+  assert.deepEqual(JSON.parse(text(await call('unifi_info', {}))), { applicationVersion: '10' });
+}));
+
+const hasIpv6 = (() => { try { return Object.values(os.networkInterfaces()).flat().some((i) => i.address === '::1'); } catch { return false; } })();
+const ipv6Test = tls && hasIpv6 ? test : test.skip;
+
+ipv6Test('local mode works with an IPv6 console address', async () => {
+  const log = [];
+  const state = newState();
+  const api = fakeApi(log, tls, state);
+  await new Promise((r) => api.listen(0, '::1', r));
+  try {
+    const env = { ...process.env, UNIFI_API_KEY: 'k', UNIFI_CONSOLE_HOST: `[::1]:${api.address().port}` };
+    const child = spawn(process.execPath, [SERVER], { env, stdio: ['pipe', 'pipe', 'inherit'] });
+    const answer = await new Promise((resolve) => {
+      child.stdout.once('data', (d) => resolve(JSON.parse(String(d))));
+      child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'unifi_info', arguments: {} } })}\n`);
+    });
+    child.kill();
+    assert.notEqual(answer.result.isError, true, JSON.stringify(answer));
+    assert.deepEqual(JSON.parse(text(answer.result)), { applicationVersion: '10' });
+  } finally {
+    api.close();
+  }
 });

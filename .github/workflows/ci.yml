@@ -47,4 +47,4 @@ jobs:
           node-version: ${{ matrix.node }}
 
       - name: Tests
-        run: node --test plugins/unifi/tests/server.test.js plugins/unifi/tests/expiry.test.js
+        run: node --test plugins/unifi/tests/server.test.js plugins/unifi/tests/expiry.test.js plugins/unifi/tests/applylog.test.js
