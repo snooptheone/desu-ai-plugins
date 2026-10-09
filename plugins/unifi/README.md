@@ -12,7 +12,7 @@ This is an independent project, not affiliated with or endorsed by Ubiquiti Inc.
 
 ## Requirements
 
-- Node.js 18 or later on your PATH (CI runs on Linux, macOS and Windows)
+- Node.js 18 or later on your PATH. CI tests on Linux only; macOS and Windows are untested
 - A UniFi console with firmware 5.0.3 or later
 - A UniFi API key from https://unifi.ui.com/settings/api-keys
 

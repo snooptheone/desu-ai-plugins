@@ -10,8 +10,8 @@ A marketplace repo for Claude Code plugins. Currently ships two plugins:
 - `plugins/unifi/` — UniFi Network MCP server (`mcp/server.js`, one Node.js file, no
   dependencies) plus a skill. Read-only today. Any write capability must require the
   user's explicit, unambiguous approval for each change. Tests:
-  `node --test plugins/unifi/tests/server.test.js`; CI runs them on Linux, macOS and
-  Windows and must pass before a PR is merged.
+  `node --test plugins/unifi/tests/server.test.js`; CI runs them on Linux (Node 18 and 22) and
+  must pass before a PR is merged. macOS and Windows are not tested yet.
 - `.claude-plugin/marketplace.json` — exposes this repo as a Claude Code
   marketplace (`claude plugin marketplace add snooptheone/desu-ai-plugins`).
 - `NOTICE` — third-party attribution. Read this before touching anything
