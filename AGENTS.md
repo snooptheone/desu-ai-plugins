@@ -41,6 +41,10 @@ A marketplace repo for Claude Code plugins. Currently ships one plugin:
   left unset by default for exactly this reason — only set it for models
   that take effort as a separate parameter (e.g. `claude-sonnet-4-6`,
   `gpt-oss-120b-medium`).
+- Hooks must print **nothing** to allow, and to block print
+  `{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+  "permissionDecisionReason": "..."}}`. The old `{"decision": "allow"|"block"}` shape is
+  rejected by current Claude Code ("Hook JSON output validation failed").
 - The worker's input travels over stdin as a single stream-json event
   (`{"event":"user","message":{"content": ...}}`), not argv — this avoids
   `ARG_MAX`/`MAX_ARG_STRLEN` limits that the original Portal-CLI-based
@@ -64,6 +68,15 @@ bugs already hit once in this repo (the `--effort`/model-name conflict, and stre
 input requiring stream-json output). Run it before touching anything under `hooks/` or
 `scripts/`.
 
-There is no automated CI yet — wiring `bash plugins/shunt-agy/evals/run.sh` into a GitHub
-Action on every PR (no `agy` auth needed) is still open; see the plugin README's
-"Known limitations" section.
+CI (`.github/workflows/ci.yml`) runs `evals/run.sh` on every PR; it needs no `agy` auth.
+
+`run.sh` also validates every hook's stdout against the PreToolUse schema Claude Code
+accepts, so a format drift fails the suite even if allow/block still matches. That check
+only proves the output matches *our copy* of the schema. An integration test against the
+real `claude` CLI (load the plugin, read a >350-line file, confirm no "Hook JSON output
+validation failed" in the log) is the only thing that catches the CLI changing its format.
+It needs an authenticated `claude`, so it must be run **locally**, not in CI — do it
+whenever Claude Code is upgraded or `hooks/` changes: `bash plugins/shunt-agy/evals/integration-test.sh`.
+Exit 2 means inconclusive (the model never called Read after 3 tries), not a bug; exit 1 keeps
+the raw streams in a temp dir whose path it prints. Exit 3 means the stream-json shape changed
+(no tool_result or hook_response to inspect): update `first_tool_result`/`hook_decisions`.
