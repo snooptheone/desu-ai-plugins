@@ -18,6 +18,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { isDeepStrictEqual } = require('node:util');
 
+const { version: VERSION } = require('../.claude-plugin/plugin.json');
 const BASE = (process.env.UNIFI_API_BASE || 'https://api.ui.com').replace(/\/+$/, '');
 const PAGE = 200;
 
@@ -121,7 +122,12 @@ async function request(method, url, jsonBody) {
     throw new Error(`Connection failed: ${e.cause ? e.cause.message : e.message}`);
   }
   if (!res.ok) throw new Error(`HTTP ${res.status} for ${url.split('?')[0]}: ${res.text.slice(0, 500)}`);
-  return res.text ? JSON.parse(res.text) : null;
+  if (!res.text) return null;
+  try {
+    return JSON.parse(res.text);
+  } catch {
+    throw new Error(`Not JSON from ${url.split('?')[0]} (HTTP ${res.status}): ${res.text.slice(0, 200)}`);
+  }
 }
 
 const get = (url) => request('GET', url);
@@ -165,7 +171,8 @@ function checkPath(p) {
   for (const part of p.split('?')[0].split('/')) {
     let d;
     try { d = decodeURIComponent(part); } catch { throw new Error('Invalid path'); }
-    if (d === '.' || d === '..' || d.includes('\\')) throw new Error("path must not contain '.' or '..' segments");
+    // Decode first, then split again: "..%2f..%2fv1" is one part here but two '..' for a server that decodes %2f.
+    if (d.includes('\\') || d.split('/').some((x) => x === '.' || x === '..')) throw new Error("path must not contain '.' or '..' segments");
   }
 }
 
@@ -208,7 +215,7 @@ const apiGet = async (p) => get(await apiPath(p));
 function makePlan({ summary, confirmation, method, path: p, body, before, readCurrent, details }) {
   for (const [c, x] of plans) if (Date.now() > x.expires) plans.delete(c);
   const approvalCode = crypto.randomBytes(5).toString('hex').toUpperCase();
-  plans.set(approvalCode, { confirmation, method, path: p, body, before, readCurrent, summary, expires: Date.now() + PLAN_TTL_MS });
+  plans.set(approvalCode, { confirmation, method, path: p, body, before, readCurrent, expires: Date.now() + PLAN_TTL_MS });
   return {
     summary,
     ...details,
@@ -364,7 +371,7 @@ const WRITE_HANDLERS = {
 };
 
 async function callTool(name, args = {}) {
-  if (name in WRITE_HANDLERS) {
+  if (Object.hasOwn(WRITE_HANDLERS, name)) {
     if (!WRITES) throw new Error('Writes are disabled. The user can turn on the enable_writes plugin option.');
     return WRITE_HANDLERS[name](args);
   }
@@ -374,7 +381,8 @@ async function callTool(name, args = {}) {
     checkPath(p);
     return project(await getAll(`${await root()}/${p.replace(/^\/+/, '')}`), args.fields);
   }
-  const entry = RESOURCES[name.replace(/^unifi_/, '')];
+  const key = name.replace(/^unifi_/, '');
+  const entry = Object.hasOwn(RESOURCES, key) ? RESOURCES[key] : null;
   if (!entry) throw new Error(`Unknown tool ${name}`);
   let [, path, idName] = entry;
   if (idName) {
@@ -399,7 +407,7 @@ async function handle(msg) {
       return reply({
         protocolVersion: params?.protocolVersion || '2025-06-18',
         capabilities: { tools: {} },
-        serverInfo: { name: 'unifi', version: '0.4.0' },
+        serverInfo: { name: 'unifi', version: VERSION },
       });
     }
     if (method === 'ping') return reply({});
@@ -436,4 +444,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { TOOLS, WRITE_TOOLS, callTool };
+module.exports = { callTool };

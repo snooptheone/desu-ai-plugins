@@ -58,6 +58,7 @@ function fakeApi(log, tls, state) {
     if (u.pathname === '/v1/hosts') return out(200, { data: [{ id: 'C1', type: 'console' }] });
     const rel = u.pathname.startsWith(LP) ? CP + u.pathname.slice(LP.length) : u.pathname;
     if (req.method !== 'GET') state.writes.push({ method: req.method, path: rel.slice(CP.length), body });
+    if (rel === `${CP}/html`) { res.writeHead(200, { 'content-type': 'text/html' }); return res.end('<html>maintenance</html>'); }
     if (rel === `${CP}/info`) return out(200, { applicationVersion: '10' });
     if (rel === `${CP}/sites`) return out(200, { count: 1, totalCount: 1, data: [{ id: 'S1', name: 'Default' }] });
     if (rel === `${CP}/sites/S1/devices/D1`) return out(200, state.device);
@@ -349,7 +350,7 @@ test('apply always asks the person: marked requiresUserInteraction, and only app
 }));
 
 test('dot segments in a path or an id never leave the integration API', () => withServer(WRITE_ENV(), async ({ call, log }) => {
-  for (const p of ['/../../v1/hosts', '/sites/%2e%2e/x', '/a/./b', '/sites\\x', '/%zz']) {
+  for (const p of ['/../../v1/hosts', '/sites/%2e%2e/x', '/a/./b', '/sites\\x', '/%zz', '/..%2f..%2f..%2fv1/hosts', '/sites%2f..%2fx', '/a%5c..%5cb', '/%2e%2e%2fx']) {
     assert.equal((await call('unifi_get', { path: p })).isError, true, p);
   }
   for (const [tool, args] of [['unifi_device', { deviceId: '..' }], ['unifi_device', { deviceId: 'a/b' }], ['unifi_clients', { site: '..' }],
@@ -389,3 +390,28 @@ ipv6Test('local mode works with an IPv6 console address', async () => {
     api.close();
   }
 });
+
+test('the version reported at initialize is the plugin version', () => withServer({ UNIFI_API_KEY: 'k' }, async ({ rpc }) => {
+  const manifest = require('../.claude-plugin/plugin.json');
+  const init = await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '0' } });
+  assert.equal(init.result.serverInfo.version, manifest.version);
+}));
+
+test('names that only exist on Object.prototype are unknown tools', async () => {
+  for (const env of [{ UNIFI_API_KEY: 'k' }, WRITE_ENV()]) {
+    await withServer(env, async ({ call, log }) => {
+      for (const name of ['constructor', 'toString', '__proto__', 'unifi_constructor', 'unifi_toString', 'unifi___proto__', 'hasOwnProperty']) {
+        const r = await call(name, {});
+        assert.equal(r.isError, true, name);
+        assert.match(text(r), /Unknown tool|Writes are disabled/, name);
+      }
+      assert.equal(log.length, 0);
+    });
+  }
+});
+
+test('a 200 answer that is not JSON gives a clear error', () => withServer({ UNIFI_API_KEY: 'k' }, async ({ call }) => {
+  const r = await call('unifi_get', { path: '/html' });
+  assert.equal(r.isError, true);
+  assert.match(text(r), /Not JSON from .*\/html \(HTTP 200\): <html>maintenance/);
+}));
