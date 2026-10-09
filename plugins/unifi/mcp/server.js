@@ -326,7 +326,7 @@ async function applyChange(a) {
     plans.delete(code);
     throw new Error('Approval code expired. Ask for a new plan.');
   }
-  if (String(a.confirmation || '').trim() !== plan.confirmation) throw new Error(`confirmation must be exactly: ${plan.confirmation}`);
+  if (String(a.confirmation || '').trim() !== plan.confirmation.trim()) throw new Error(`confirmation must be exactly: ${plan.confirmation}`);
   plans.delete(code); // one use
   if (!isDeepStrictEqual(await plan.readCurrent(), plan.before)) throw new Error('The resource changed since the plan was made. Ask for a new plan.');
   const entry = { confirmation: plan.confirmation, method: plan.method, path: plan.path, body: plan.body, before: plan.before };

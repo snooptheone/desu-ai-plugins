@@ -25,12 +25,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Every marketplace entry has a matching plugin manifest
+      - name: Every marketplace entry matches its plugin manifest (name and version)
         run: |
-          jq -r '.plugins[] | "\(.name) \(.source)"' .claude-plugin/marketplace.json |
-          while read -r name source; do
+          jq -r '.plugins[] | "\(.name) \(.source) \(.version // "")"' .claude-plugin/marketplace.json |
+          while read -r name source version; do
             test "$(jq -r .name "$source/.claude-plugin/plugin.json")" = "$name" \
               || { echo "::error::$source manifest does not match '$name'"; exit 1; }
+            test -z "$version" || test "$(jq -r .version "$source/.claude-plugin/plugin.json")" = "$version" \
+              || { echo "::error::$name version differs between marketplace.json and plugin.json"; exit 1; }
           done
 
   unifi:

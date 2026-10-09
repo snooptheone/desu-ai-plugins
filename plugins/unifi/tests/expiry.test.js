@@ -21,11 +21,13 @@ test('an approval code expires after five minutes', async (t) => {
   });
   await new Promise((r) => api.listen(0, '127.0.0.1', r));
   t.after(() => api.close());
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'unifi-data-'));
+  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
   Object.assign(process.env, {
     UNIFI_API_KEY: 'k',
     UNIFI_API_BASE: `http://127.0.0.1:${api.address().port}`,
     UNIFI_ENABLE_WRITES: 'true',
-    CLAUDE_PLUGIN_DATA: fs.mkdtempSync(path.join(os.tmpdir(), 'unifi-data-')),
+    CLAUDE_PLUGIN_DATA: dataDir,
   });
   const { callTool } = require('../mcp/server.js');
 

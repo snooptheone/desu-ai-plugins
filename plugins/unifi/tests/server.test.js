@@ -1,6 +1,7 @@
 'use strict';
 // Run: node --test plugins/unifi/tests
 const test = require('node:test');
+const { after } = test;
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const path = require('node:path');
@@ -218,7 +219,13 @@ test('an invalid console host is rejected before any request', () => withServer(
 }));
 
 // ── writes ──
-const WRITE_ENV = () => ({ UNIFI_API_KEY: 'k', UNIFI_ENABLE_WRITES: 'true', CLAUDE_PLUGIN_DATA: fs.mkdtempSync(path.join(os.tmpdir(), 'unifi-data-')) });
+const dataDirs = [];
+after(() => dataDirs.forEach((d) => fs.rmSync(d, { recursive: true, force: true })));
+const WRITE_ENV = () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'unifi-data-'));
+  dataDirs.push(dir);
+  return { UNIFI_API_KEY: 'k', UNIFI_ENABLE_WRITES: 'true', CLAUDE_PLUGIN_DATA: dir };
+};
 const json = (r) => JSON.parse(text(r));
 const WRITE_NAMES = ['unifi_plan_restart_device', 'unifi_plan_set_firewall_policy', 'unifi_plan_update_traffic_list', 'unifi_apply_change'];
 const logLines = (env) => fs.readFileSync(path.join(env.CLAUDE_PLUGIN_DATA, 'changes.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
@@ -429,6 +436,14 @@ test('traffic list: the confirmation phrase shows the values, and stays short fo
   assert.match(big.confirmation, /\.\.\. and \d+ more$/);
   assert.match(big.summary, /\+PORT_NUMBER 3059/); // the summary lists everything
   const r = await call('unifi_apply_change', { approvalCode: big.approvalCode, confirmation: big.confirmation });
+  assert.notEqual(r.isError, true, text(r));
+  assert.equal(state.writes.length, 1);
+}));
+
+test('a name that ends with a space can still be confirmed', () => withServer(WRITE_ENV(), async ({ call, state }) => {
+  state.device.name = 'AP1 ';
+  const plan = json(await call('unifi_plan_restart_device', { deviceId: 'D1' }));
+  const r = await call('unifi_apply_change', { approvalCode: plan.approvalCode, confirmation: plan.confirmation });
   assert.notEqual(r.isError, true, text(r));
   assert.equal(state.writes.length, 1);
 }));
