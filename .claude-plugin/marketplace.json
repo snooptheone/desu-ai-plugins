@@ -10,7 +10,7 @@
     {
       "name": "shunt-agy",
       "description": "Shunts I/O-heavy work (bulk file reads, boilerplate generation) to a cheaper model via the agy (Antigravity) CLI. Hooks block large reads and redirect to bulk-reader/code-writer scripts.",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "author": {
         "name": "snooptheone"
       },
