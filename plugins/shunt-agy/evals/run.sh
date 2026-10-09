@@ -76,9 +76,22 @@ run_eval() {
   else
     result=$(echo "$input" | bash "$hook" 2>/dev/null)
   fi
-  actual=$(echo "$result" | jq -r '.decision')
+  # Claude Code rejects any PreToolUse output outside this shape (it once rejected
+  # {"decision": ...}); empty output is valid and means allow.
+  local schema_ok=1
+  if [ -n "$result" ] && ! echo "$result" | jq -e '
+      keys == ["hookSpecificOutput"]
+      and .hookSpecificOutput.hookEventName == "PreToolUse"
+      and (.hookSpecificOutput.permissionDecision | IN("allow", "deny", "ask"))' >/dev/null 2>&1; then
+    schema_ok=0
+  fi
+  # deny maps to the evals' "block"
+  actual=$(echo "${result:-{\}}" | jq -r '.hookSpecificOutput.permissionDecision // "allow"' 2>/dev/null | sed 's/^deny$/block/')
 
-  if [ "$actual" = "$expected" ]; then
+  if [ "$schema_ok" = 0 ]; then
+    printf "  \033[31mFAIL\033[0m  %-30s output violates hook schema: %s\n" "$name" "$result"
+    FAILED=$((FAILED + 1))
+  elif [ "$actual" = "$expected" ]; then
     printf "  \033[32mPASS\033[0m  %-30s %s\n" "$name" "$reason"
     PASSED=$((PASSED + 1))
   else
