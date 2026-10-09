@@ -1,12 +1,15 @@
 # desu-ai-plugins
 
-A marketplace repo for Claude Code plugins. Currently ships one plugin:
-`shunt-agy`.
+A marketplace repo for Claude Code plugins. Currently ships two plugins:
+`shunt-agy` and `unifi`.
 
 ## Repository structure
 
 - `plugins/shunt-agy/` — the plugin itself: hooks, scripts, skills, and
   evals. See `plugins/shunt-agy/README.md` for what it does.
+- `plugins/unifi/` — read-only UniFi Network client (one Python script using
+  only the stdlib, plus a skill). GET requests only: do not add write code
+  without the owner asking for it explicitly.
 - `.claude-plugin/marketplace.json` — exposes this repo as a Claude Code
   marketplace (`claude plugin marketplace add snooptheone/desu-ai-plugins`).
 - `NOTICE` — third-party attribution. Read this before touching anything
