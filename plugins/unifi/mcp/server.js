@@ -6,10 +6,17 @@
 //   local: when UNIFI_CONSOLE_HOST is set, straight to the console
 //     https://<host>/proxy/network/integration/v1
 //     The console's certificate is self-signed, so TLS verification is skipped in this mode.
-// This file only sends GET requests.
+// Read tools only send GET requests. The write tools exist only when UNIFI_ENABLE_WRITES=true, and the
+// only code that sends a non-GET request is unifi_apply_change, which needs a one-time approval code
+// from a previous plan, its exact confirmation phrase, and a resource unchanged since the plan.
 'use strict';
 
+const crypto = require('node:crypto');
+const fs = require('node:fs');
 const https = require('node:https');
+const os = require('node:os');
+const path = require('node:path');
+const { isDeepStrictEqual } = require('node:util');
 
 const BASE = (process.env.UNIFI_API_BASE || 'https://api.ui.com').replace(/\/+$/, '');
 const PAGE = 200;
@@ -79,11 +86,11 @@ function localHost() {
   return h;
 }
 
-function httpsGet(url, headers) {
+function httpsRequest(method, url, headers, body) {
   return new Promise((resolve, reject) => {
     const u = new URL(url);
     const req = https.request(
-      { hostname: u.hostname, port: u.port || 443, path: u.pathname + u.search, headers, timeout: 30000, rejectUnauthorized: false },
+      { method, hostname: u.hostname, port: u.port || 443, path: u.pathname + u.search, headers, timeout: 30000, rejectUnauthorized: false },
       (res) => {
         let text = '';
         res.setEncoding('utf8');
@@ -93,18 +100,20 @@ function httpsGet(url, headers) {
     );
     req.on('timeout', () => req.destroy(new Error('timeout')));
     req.on('error', reject);
-    req.end();
+    req.end(body);
   });
 }
 
-async function get(url) {
+async function request(method, url, jsonBody) {
   const headers = { 'X-API-KEY': apiKey(), Accept: 'application/json' };
+  const body = jsonBody === undefined ? undefined : JSON.stringify(jsonBody);
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
   let res;
   try {
     if (localHost()) {
-      res = await httpsGet(url, headers);
+      res = await httpsRequest(method, url, headers, body);
     } else {
-      const r = await fetch(url, { headers, signal: AbortSignal.timeout(30000) });
+      const r = await fetch(url, { method, headers, body, signal: AbortSignal.timeout(30000) });
       res = { ok: r.ok, status: r.status, text: await r.text() };
     }
   } catch (e) {
@@ -114,6 +123,8 @@ async function get(url) {
   if (!res.ok) throw new Error(`HTTP ${res.status} for ${url.split('?')[0]}: ${res.text.slice(0, 500)}`);
   return res.text ? JSON.parse(res.text) : null;
 }
+
+const get = (url) => request('GET', url);
 
 // Follow offset/limit pagination and return the concatenated `data` list.
 async function getAll(url) {
@@ -161,7 +172,173 @@ function project(data, fields) {
   return data.map((row) => Object.fromEntries(fields.filter((f) => f in row).map((f) => [f, row[f]])));
 }
 
+// ── Writes: plan, then apply ──
+const WRITES = String(process.env.UNIFI_ENABLE_WRITES || '').trim().toLowerCase() === 'true';
+const PLAN_TTL_MS = 5 * 60 * 1000;
+const plans = new Map(); // approval code -> plan (in memory only)
+
+const dataDir = () => process.env.CLAUDE_PLUGIN_DATA || path.join(os.homedir(), '.claude', 'plugins', 'data', 'unifi');
+
+// Append-only record of every attempted change. Throws if it cannot be written, so nothing is applied unlogged.
+function logChange(entry) {
+  fs.mkdirSync(dataDir(), { recursive: true });
+  fs.appendFileSync(path.join(dataDir(), 'changes.jsonl'), `${JSON.stringify({ time: new Date().toISOString(), ...entry })}\n`, { mode: 0o600 });
+}
+
+const apiPath = async (p) => `${await root()}/${p}`;
+const apiGet = async (p) => get(await apiPath(p));
+
+function makePlan({ summary, confirmation, method, path: p, body, before, readCurrent, details }) {
+  const approvalCode = crypto.randomBytes(5).toString('hex').toUpperCase();
+  plans.set(approvalCode, { confirmation, method, path: p, body, before, readCurrent, summary, expires: Date.now() + PLAN_TTL_MS });
+  return {
+    summary,
+    ...details,
+    approvalCode,
+    confirmation,
+    expiresInSeconds: PLAN_TTL_MS / 1000,
+    next: 'Nothing has been changed. Show the summary to the user and wait for an explicit yes in the chat. Only then call unifi_apply_change with approvalCode and confirmation exactly as given.',
+  };
+}
+
+async function planRestartDevice(a) {
+  if (!a.deviceId) throw new Error('deviceId is required');
+  const p = `sites/${enc(await resolveSite(a.site))}/devices/${enc(a.deviceId)}`;
+  const read = async () => {
+    const d = await apiGet(p);
+    return { id: d.id, name: d.name, model: d.model, state: d.state };
+  };
+  const before = await read();
+  return makePlan({
+    summary: `Restart device "${before.name}" (${before.model}), currently ${before.state}. It goes offline for a few minutes and its clients disconnect.`,
+    confirmation: `RESTART ${before.name}`,
+    method: 'POST', path: `${p}/actions`, body: { action: 'RESTART' }, before, readCurrent: read,
+  });
+}
+
+const POLICY_PUT_KEYS = ['action', 'connectionStateFilter', 'description', 'destination', 'enabled', 'ipProtocolScope', 'ipsecFilter', 'loggingEnabled', 'name', 'schedule', 'source'];
+
+async function planSetFirewallPolicy(a) {
+  if (!a.policyId) throw new Error('policyId is required');
+  const wanted = {};
+  for (const k of ['enabled', 'loggingEnabled']) {
+    if (a[k] === undefined) continue;
+    if (typeof a[k] !== 'boolean') throw new Error(`${k} must be true or false`);
+    wanted[k] = a[k];
+  }
+  if (!Object.keys(wanted).length) throw new Error('Pass enabled and/or loggingEnabled');
+  const site = enc(await resolveSite(a.site));
+  const p = `sites/${site}/firewall/policies/${enc(a.policyId)}`;
+  const read = () => apiGet(p);
+  const cur = await read();
+  const origin = cur.metadata && cur.metadata.origin;
+  const changes = Object.fromEntries(Object.entries(wanted).filter(([k, v]) => cur[k] !== v));
+  if (!Object.keys(changes).length) throw new Error('Nothing to change: the policy already has those values');
+  if ('enabled' in changes && origin !== 'USER_DEFINED') throw new Error(`Only user-defined policies can be enabled or disabled; this one is ${origin}`);
+  if ('loggingEnabled' in changes && origin !== 'USER_DEFINED' && !(cur.metadata && cur.metadata.configurable)) throw new Error(`This policy (${origin}) is not configurable`);
+  const zones = Object.fromEntries((await getAll(await apiPath(`sites/${site}/firewall/zones`))).map((z) => [z.id, z.name]));
+  const zone = (side) => zones[cur[side].zoneId] || cur[side].zoneId;
+  // The API takes only loggingEnabled on PATCH; enabling needs the whole policy on PUT.
+  const full = 'enabled' in changes;
+  const body = full ? { ...Object.fromEntries(POLICY_PUT_KEYS.filter((k) => k in cur).map((k) => [k, cur[k]])), ...changes } : changes;
+  const list = Object.entries(changes).map(([k, v]) => `${k}: ${cur[k]} -> ${v}`).join(', ');
+  return makePlan({
+    summary: `Firewall policy "${cur.name}" (${zone('source')} -> ${zone('destination')}, ${cur.action && cur.action.type}, ${cur.ipProtocolScope && cur.ipProtocolScope.ipVersion}): ${list}.`,
+    confirmation: `SET firewall policy "${cur.name}": ${Object.entries(changes).map(([k, v]) => `${k}=${v}`).join(', ')}`,
+    method: full ? 'PUT' : 'PATCH', path: p, body, before: cur, readCurrent: read,
+    details: { changes },
+  });
+}
+
+const sortedJson = (o) => JSON.stringify(o, (k, v) => (v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort()) : v));
+
+async function planUpdateTrafficList(a) {
+  if (!a.listId) throw new Error('listId is required');
+  if (!Array.isArray(a.items) || !a.items.length || !a.items.every((i) => i && typeof i === 'object' && i.type && i.value !== undefined)) {
+    throw new Error('items must be a non-empty array of objects like {"type":"PORT_NUMBER","value":22}; it replaces the whole list');
+  }
+  if (a.name !== undefined && (typeof a.name !== 'string' || !a.name)) throw new Error('name must be a non-empty string');
+  const site = enc(await resolveSite(a.site));
+  const p = `sites/${site}/traffic-matching-lists/${enc(a.listId)}`;
+  const read = () => apiGet(p);
+  const cur = await read();
+  const body = { name: a.name ?? cur.name, type: cur.type, items: a.items };
+  const have = new Set((cur.items || []).map(sortedJson));
+  const want = new Set(a.items.map(sortedJson));
+  const added = a.items.filter((i) => !have.has(sortedJson(i)));
+  const removed = (cur.items || []).filter((i) => !want.has(sortedJson(i)));
+  if (!added.length && !removed.length && body.name === cur.name) throw new Error('Nothing to change: the list already has these items');
+  const policies = await getAll(await apiPath(`sites/${site}/firewall/policies`));
+  const usedBy = policies.filter((x) => JSON.stringify(x).includes(cur.id)).map((x) => x.name);
+  return makePlan({
+    summary: `Traffic list "${cur.name}" (${cur.type}): add ${added.length}, remove ${removed.length}${body.name !== cur.name ? `, rename to "${body.name}"` : ''}. Used by: ${usedBy.length ? usedBy.map((n) => `"${n}"`).join(', ') : 'no firewall policy'}.`,
+    confirmation: `UPDATE traffic list "${cur.name}"`,
+    method: 'PUT', path: p, body, before: cur, readCurrent: read,
+    details: { added, removed, usedBy },
+  });
+}
+
+async function applyChange(a) {
+  const code = String(a.approvalCode || '').trim().toUpperCase();
+  const plan = plans.get(code);
+  if (!plan) throw new Error('Unknown or already used approval code. Ask for a new plan.');
+  if (Date.now() > plan.expires) {
+    plans.delete(code);
+    throw new Error('Approval code expired. Ask for a new plan.');
+  }
+  if (String(a.confirmation || '').trim() !== plan.confirmation) throw new Error(`confirmation must be exactly: ${plan.confirmation}`);
+  plans.delete(code); // one use
+  if (!isDeepStrictEqual(await plan.readCurrent(), plan.before)) throw new Error('The resource changed since the plan was made. Ask for a new plan.');
+  const entry = { confirmation: plan.confirmation, method: plan.method, path: plan.path, body: plan.body, before: plan.before };
+  logChange({ phase: 'attempt', ...entry });
+  try {
+    const result = await request(plan.method, await apiPath(plan.path), plan.body);
+    logChange({ phase: 'applied', confirmation: plan.confirmation, result });
+    return { applied: plan.confirmation, result, log: path.join(dataDir(), 'changes.jsonl') };
+  } catch (e) {
+    logChange({ phase: 'failed', confirmation: plan.confirmation, error: e.message });
+    throw e;
+  }
+}
+
+const idProp = (what) => ({ type: 'string', description: what });
+const planTool = (name, description, properties, required) => ({
+  name, description: `${description} Changes nothing: returns a summary and an approvalCode.`,
+  inputSchema: { type: 'object', properties: { ...properties, site: siteProp }, required },
+  annotations: { readOnlyHint: true, openWorldHint: true },
+});
+const WRITE_TOOLS = [
+  planTool('unifi_plan_restart_device', 'Plan restarting an adopted device (AP, switch or gateway).', { deviceId: idProp('The deviceId') }, ['deviceId']),
+  planTool('unifi_plan_set_firewall_policy', 'Plan enabling/disabling a user-defined firewall policy, or turning its logging on/off.', {
+    policyId: idProp('The firewall policy id'), enabled: { type: 'boolean' }, loggingEnabled: { type: 'boolean' },
+  }, ['policyId']),
+  planTool('unifi_plan_update_traffic_list', 'Plan replacing the items of a traffic matching list (ports or IP addresses); all items must be given.', {
+    listId: idProp('The traffic matching list id'), name: { type: 'string' },
+    items: { type: 'array', items: { type: 'object' }, description: 'The complete new list, like [{"type":"PORT_NUMBER","value":22}]' },
+  }, ['listId', 'items']),
+  {
+    name: 'unifi_apply_change',
+    description: 'Apply a change planned earlier. Call it ONLY after the user explicitly approved, in the chat, the exact change shown by the plan. Pass approvalCode and confirmation exactly as the plan gave them.',
+    inputSchema: {
+      type: 'object',
+      properties: { approvalCode: { type: 'string' }, confirmation: { type: 'string', description: 'The confirmation phrase from the plan, verbatim' } },
+      required: ['approvalCode', 'confirmation'],
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+  },
+];
+const WRITE_HANDLERS = {
+  unifi_plan_restart_device: planRestartDevice,
+  unifi_plan_set_firewall_policy: planSetFirewallPolicy,
+  unifi_plan_update_traffic_list: planUpdateTrafficList,
+  unifi_apply_change: applyChange,
+};
+
 async function callTool(name, args = {}) {
+  if (name in WRITE_HANDLERS) {
+    if (!WRITES) throw new Error('Writes are disabled. The user can turn on the enable_writes plugin option.');
+    return WRITE_HANDLERS[name](args);
+  }
   if (name === 'unifi_get') {
     const p = String(args.path || '');
     if (!p || p.includes('://') || p.startsWith('//')) throw new Error('path must look like /sites, not a URL');
@@ -192,11 +369,11 @@ async function handle(msg) {
       return reply({
         protocolVersion: params?.protocolVersion || '2025-06-18',
         capabilities: { tools: {} },
-        serverInfo: { name: 'unifi', version: '0.2.0' },
+        serverInfo: { name: 'unifi', version: '0.4.0' },
       });
     }
     if (method === 'ping') return reply({});
-    if (method === 'tools/list') return reply({ tools: TOOLS });
+    if (method === 'tools/list') return reply({ tools: WRITES ? [...TOOLS, ...WRITE_TOOLS] : TOOLS });
     if (method === 'tools/call') {
       try {
         const data = await callTool(params.name, params.arguments);
@@ -226,4 +403,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { TOOLS, callTool };
+module.exports = { TOOLS, WRITE_TOOLS, callTool };

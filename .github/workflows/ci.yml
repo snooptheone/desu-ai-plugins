@@ -47,15 +47,4 @@ jobs:
           node-version: ${{ matrix.node }}
 
       - name: Tests
-        run: node --test plugins/unifi/tests/server.test.js
-
-  unifi-read-only:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Server stays read-only
-        run: |
-          if grep -nE "POST|PUT|PATCH|DELETE" plugins/unifi/mcp/server.js; then
-            echo "::error::mcp/server.js must only send GET requests"; exit 1
-          fi
+        run: node --test plugins/unifi/tests/server.test.js plugins/unifi/tests/expiry.test.js

@@ -20,8 +20,8 @@
     },
     {
       "name": "unifi",
-      "description": "Read-only view of your UniFi network (clients, devices, networks, WiFi, firewall, VPN) through the official UniFi Network API, from the cloud or straight from your console.",
-      "version": "0.3.1",
+      "description": "Your UniFi network in Claude: read clients, devices, networks, WiFi, firewall and VPN through the official UniFi Network API. Optional, off by default: a few changes, each applied only after your explicit approval.",
+      "version": "0.4.0",
       "author": {
         "name": "snooptheone"
       },
