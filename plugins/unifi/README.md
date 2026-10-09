@@ -1,12 +1,20 @@
 # unifi
 
-A read-only Claude Code plugin for UniFi Network, built only on the official
-[UniFi Network API](https://developer.ui.com/network) and the Site Manager Connector. Ask Claude who
-is on the network, what devices are online, or how a VLAN, SSID or firewall policy is set up.
+A [Claude Code](https://claude.ai/claude-code) plugin that gives Claude a read-only view of your UniFi
+Network, built only on the official [UniFi Network API](https://developer.ui.com/network) and the Site
+Manager Connector. Ask who is on the network, what devices are online, or how a VLAN, SSID or firewall
+policy is set up.
 
-It sends GET requests only. There is no code that creates, changes or deletes anything.
+It is an MCP server (one Node.js file, no dependencies) that sends GET requests only. Writes are not
+implemented yet; when they are, they will need your explicit approval for each change.
 
 This is an independent project, not affiliated with or endorsed by Ubiquiti Inc.
+
+## Requirements
+
+- Node.js 18 or later on your PATH (CI runs on Linux, macOS and Windows)
+- A UniFi console with firmware 5.0.3 or later
+- A UniFi API key from https://unifi.ui.com/settings/api-keys
 
 ## Install
 
@@ -15,44 +23,31 @@ claude plugin marketplace add snooptheone/desu-ai-plugins
 claude plugin install unifi@desu-ai-plugins
 ```
 
-Create an API key at https://unifi.ui.com/settings/api-keys, then either export it in the shell that
-starts Claude Code:
+When the plugin is enabled, Claude Code asks for the API key and keeps it in your system's secure
+credential store. The key is passed to the server process and never appears in the conversation. Never
+paste it into the chat.
 
-```bash
-export UNIFI_API_KEY=...
-```
-
-or save it in a file only you can read:
-
-```bash
-mkdir -p ~/.config/unifi-skill && install -m 600 /dev/null ~/.config/unifi-skill/api-key
-read -rs K && printf '%s\n' "$K" > ~/.config/unifi-skill/api-key && unset K
-```
-
-Never paste the key into the chat. Then ask Claude something like "who is connected to my network?".
+Then ask something like "who is connected to my network?".
 
 ## Configuration
 
-| Variable | Purpose |
+| Where | Purpose |
 |---|---|
-| `UNIFI_API_KEY` | API key. Wins over the key file |
-| `UNIFI_API_KEY_FILE` | Key file (default `~/.config/unifi-skill/api-key`, must be mode 600) |
-| `UNIFI_CONSOLE_ID` | Console to use when the account has more than one |
+| Plugin option `api_key` | Your API key (asked on enable, stored securely) |
+| Env `UNIFI_CONSOLE_ID` | Console to use when the account has more than one |
 
-Requests go through `api.ui.com`, limited to 100 per minute per console. Requires Python 3.9+ and
-console firmware 5.0.3 or later.
+Requests go through `api.ui.com`, limited to 100 per minute per console.
 
-## Running the script directly
+## Development
 
 ```bash
-python3 plugins/unifi/scripts/unifi.py clients
-python3 plugins/unifi/scripts/unifi.py networks --json
-python3 plugins/unifi/scripts/unifi.py get /dpi/categories
-python3 plugins/unifi/scripts/unifi.py --help        # all resources
+node --test plugins/unifi/tests/server.test.js
 ```
+
+The tests start the server against a local fake API; they need no network and no key.
 
 ## Known limitations
 
-- Read-only by design. Writes (block a client, edit a rule) are not implemented.
-- Uses the cloud Connector, so it needs internet access. Direct access to `https://<console>/proxy/network/integration`
-  is not implemented.
+- Read-only for now.
+- Uses the cloud Connector, so it needs internet access. Direct access to
+  `https://<console>/proxy/network/integration` is not implemented.

@@ -10,41 +10,24 @@ description: >
 
 # UniFi (read-only)
 
-Everything goes through one script. It only sends GET requests, so nothing here can change the
-network. If the user asks for a change (block a device, edit a rule, restart an AP), say this skill
-is read-only and describe what they would do in the UniFi UI.
+Use the `unifi_*` tools of the plugin's MCP server. They only send GET requests, so nothing here can
+change the network. If the user asks for a change (block a device, edit a rule, restart an AP), say this
+plugin is read-only for now and describe what they would do in the UniFi UI.
 
-```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/unifi.py <resource> [id] [--site SITE] [--json]
-```
-
-| Resource | Shows |
+| Tool | Shows |
 |---|---|
-| `info`, `sites` | Network app version; sites (the script auto-picks the only one) |
-| `devices`, `device-stats <deviceId>`, `pending-devices` | Managed devices; latest stats of one; devices waiting for adoption |
-| `clients` | Connected clients |
-| `networks`, `wifi` | Networks/VLANs; WiFi broadcasts (SSIDs) |
-| `firewall-policies`, `firewall-zones`, `acl-rules` | Firewall |
-| `dns`, `wans`, `traffic-lists` | DNS policies, WAN links, traffic matching lists |
-| `vpn-servers`, `vpn-tunnels` | VPN |
-| `get <path>` | Any other GET path under `/v1`, for example `get /dpi/categories` |
+| `unifi_info`, `unifi_sites` | Network app version; sites (the only site is picked automatically) |
+| `unifi_devices`, `unifi_device_stats`, `unifi_pending_devices` | Managed devices; latest stats of one device (needs `deviceId`); devices waiting for adoption |
+| `unifi_clients` | Connected clients |
+| `unifi_networks`, `unifi_wifi` | Networks/VLANs; WiFi broadcasts (SSIDs) |
+| `unifi_firewall_policies`, `unifi_firewall_zones`, `unifi_acl_rules` | Firewall |
+| `unifi_dns_policies`, `unifi_wans`, `unifi_traffic_lists` | DNS policies, WAN links, traffic matching lists |
+| `unifi_vpn_servers`, `unifi_vpn_tunnels` | VPN |
+| `unifi_get` | Any other GET path under `/v1`, for example `/dpi/categories` |
 
-Lists are fetched in full (200 per page). `--json` prints compact JSON; the default is indented.
-Filter large output with `python3 -c`/`jq` instead of reading it all, and summarize the fields the
-question needs.
-
-## Setup (once)
-
-1. Create an API key at https://unifi.ui.com/settings/api-keys.
-2. Make it available to the script: `export UNIFI_API_KEY=...` in the shell that starts Claude Code, or
-   save it to `~/.config/unifi-skill/api-key` with `chmod 600`. Never paste the key into the chat.
-3. Test: `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/unifi.py info` prints the Network version.
-
-If there are several consoles set `UNIFI_CONSOLE_ID`; for several sites pass `--site`.
-
-## Notes
-
-- The API goes through the cloud Site Manager Connector, which allows 100 requests per minute and
-  needs console firmware 5.0.3 or later. The script makes one request per 200 rows.
+- List tools return every item. Pass `fields` (for example `["name","ipAddress"]`) to keep only what the
+  question needs; this saves a lot of tokens on clients and firewall policies.
 - Client and device output includes MAC and IP addresses. Show only what the question needs.
-- Reference: the OpenAPI document at `https://developer.ui.com/network/<version>/openapi.json`.
+- Several consoles: set `UNIFI_CONSOLE_ID` in the environment that starts Claude Code. Several sites: pass `site`.
+- Requests go through the cloud Site Manager Connector: 100 requests per minute per console, console
+  firmware 5.0.3 or later.

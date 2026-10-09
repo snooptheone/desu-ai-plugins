@@ -34,24 +34,29 @@ jobs:
           done
 
   unifi:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
-        python: ["3.9", "3.13"]
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: ["18", "22"]
     steps:
       - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-node@v4
         with:
-          python-version: ${{ matrix.python }}
+          node-version: ${{ matrix.node }}
 
-      - name: Script compiles and runs
-        run: |
-          python3 -m py_compile plugins/unifi/scripts/unifi.py
-          python3 plugins/unifi/scripts/unifi.py --help > /dev/null
+      - name: Tests
+        run: node --test plugins/unifi/tests/server.test.js
 
-      - name: Script stays read-only
+  unifi-read-only:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Server stays read-only
         run: |
-          if grep -nE 'POST|PUT|PATCH|DELETE' plugins/unifi/scripts/unifi.py; then
-            echo "::error::unifi.py must only send GET requests"; exit 1
+          if grep -nE "POST|PUT|PATCH|DELETE" plugins/unifi/mcp/server.js; then
+            echo "::error::mcp/server.js must only send GET requests"; exit 1
           fi

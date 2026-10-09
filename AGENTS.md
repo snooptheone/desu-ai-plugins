@@ -7,9 +7,11 @@ A marketplace repo for Claude Code plugins. Currently ships two plugins:
 
 - `plugins/shunt-agy/` — the plugin itself: hooks, scripts, skills, and
   evals. See `plugins/shunt-agy/README.md` for what it does.
-- `plugins/unifi/` — read-only UniFi Network client (one Python script using
-  only the stdlib, plus a skill). GET requests only: do not add write code
-  without the owner asking for it explicitly.
+- `plugins/unifi/` — UniFi Network MCP server (`mcp/server.js`, one Node.js file, no
+  dependencies) plus a skill. Read-only today. Any write capability must require the
+  user's explicit, unambiguous approval for each change. Tests:
+  `node --test plugins/unifi/tests/server.test.js`; CI runs them on Linux, macOS and
+  Windows and must pass before a PR is merged.
 - `.claude-plugin/marketplace.json` — exposes this repo as a Claude Code
   marketplace (`claude plugin marketplace add snooptheone/desu-ai-plugins`).
 - `NOTICE` — third-party attribution. Read this before touching anything
