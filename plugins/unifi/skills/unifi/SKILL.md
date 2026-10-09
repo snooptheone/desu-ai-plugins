@@ -8,11 +8,11 @@ description: >
   WiFi, VLAN or VPN settings, even if they do not say "UniFi".
 ---
 
-# UniFi (read-only)
+# UniFi
 
-Use the `unifi_*` tools of the plugin's MCP server. They only send GET requests, so nothing here can
-change the network. If the user asks for a change (block a device, edit a rule, restart an AP), say this
-plugin is read-only for now and describe what they would do in the UniFi UI.
+Use the `unifi_*` tools of the plugin's MCP server. The read tools below only send GET requests and
+cannot change anything. Changes are covered at the end, and only exist when the user turned on the
+`enable_writes` plugin option.
 
 | Tool | Shows |
 |---|---|
@@ -37,3 +37,28 @@ plugin is read-only for now and describe what they would do in the UniFi UI.
 - Several consoles: set `UNIFI_CONSOLE_ID` in the environment that starts Claude Code. Several sites: pass `site`.
 - Cloud mode goes through the Site Manager Connector (100 requests per minute per console, firmware
   5.0.3 or later); local mode, when the user set a console address, talks to the console directly.
+
+## Changes (only when the write tools are listed)
+
+If no `unifi_plan_*` tools exist, writes are off: say so, tell the user they can enable "Allow changes"
+in the plugin options, and describe what they would do in the UniFi UI. The official API cannot block a
+client or change most settings; do not promise what the tools below do not do.
+
+| Plan tool | Changes |
+|---|---|
+| `unifi_plan_restart_device` | Restarts an AP, switch or the gateway |
+| `unifi_plan_set_firewall_policy` | Enables/disables a user-defined firewall policy, or turns its logging on/off |
+| `unifi_plan_update_traffic_list` | Replaces all items of a port or IP list (send the full new list) |
+
+Every change takes two steps, and you may not skip or merge them:
+1. Call the plan tool. It changes nothing and returns a `summary`, an `approvalCode` (valid 5 minutes,
+   one use) and a `confirmation` phrase.
+2. Show the user the summary, including who uses a traffic list and every value added or removed (not
+   just the counts), and ask. Wait for a clear yes in the
+   chat for exactly that change. Silence, "ok maybe" or an earlier approval of something else is not a yes.
+3. Only then call `unifi_apply_change` with the `approvalCode` and the `confirmation` verbatim.
+
+Never call `unifi_apply_change` on your own initiative, never reuse a code for a different change, and
+never apply several plans at once without the user approving each one. If the plan expired or the
+resource changed, make a new plan and ask again. Applied changes are logged to `changes.jsonl` in the
+plugin's data directory, with the state before the change, so one can be undone by hand.

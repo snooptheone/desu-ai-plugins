@@ -26,9 +26,9 @@ how to reproduce these numbers yourself).
 
 ### [unifi](plugins/unifi)
 
-A read-only view of your UniFi network — clients, devices and their stats, networks/VLANs, WiFi,
-firewall policies, DNS and VPN — through the official UniFi Network API. Read-only for now; nothing
-it does can change your network. See [`plugins/unifi/README.md`](plugins/unifi/README.md).
+Your UniFi network in Claude — clients, devices and their stats, networks/VLANs, WiFi,
+firewall policies, DNS and VPN — through the official UniFi Network API. Reading is the default; a few
+changes are available behind an option that is off by default and need your explicit approval each time. See [`plugins/unifi/README.md`](plugins/unifi/README.md).
 
 ## Installation
 
