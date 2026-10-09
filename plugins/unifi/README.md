@@ -86,6 +86,9 @@ Each attempt and its result are appended to `changes.jsonl` in the plugin's data
 (`~/.claude/plugins/data/…`), with the resource as it was before. The change is not applied if the log
 cannot be written. Undoing a change is manual: the log has the previous state.
 
+Changes were tested in local mode only. With a Site Manager key (cloud mode) the cloud API may refuse them
+after the plan, with an HTTP 403.
+
 The official API limits what can change. It cannot block a client, and firewall policies created by the
 system cannot be enabled or disabled. Prefer a key with an expiration date.
 

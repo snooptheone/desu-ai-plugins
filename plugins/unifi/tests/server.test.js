@@ -317,6 +317,8 @@ test('traffic list: plan shows the diff and who uses it, apply replaces the item
   assert.deepEqual(plan.added, [{ type: 'PORT_NUMBER', value: 2222 }]);
   assert.deepEqual(plan.removed, []);
   assert.deepEqual(plan.usedBy, ['SSH']);
+  assert.equal(plan.confirmation, 'UPDATE traffic list "SSH" (+1 -0): +PORT_NUMBER 2222');
+  assert.match(plan.summary, /\+PORT_NUMBER 2222/);
   assert.deepEqual(state.writes, []);
   await call('unifi_apply_change', { approvalCode: plan.approvalCode, confirmation: plan.confirmation });
   assert.deepEqual(state.writes, [{ method: 'PUT', path: '/sites/S1/traffic-matching-lists/L1', body: { name: 'SSH', type: 'PORTS', items } }]);
@@ -414,4 +416,19 @@ test('a 200 answer that is not JSON gives a clear error', () => withServer({ UNI
   const r = await call('unifi_get', { path: '/html' });
   assert.equal(r.isError, true);
   assert.match(text(r), /Not JSON from .*\/html \(HTTP 200\): <html>maintenance/);
+}));
+
+test('traffic list: the confirmation phrase shows the values, and stays short for big changes', () => withServer(WRITE_ENV(), async ({ call, state }) => {
+  const small = json(await call('unifi_plan_update_traffic_list', { listId: 'L1', name: 'SSH2', items: [{ type: 'PORT_NUMBER', value: 2222 }] }));
+  assert.equal(small.confirmation, 'UPDATE traffic list "SSH" (+1 -1): +PORT_NUMBER 2222, -PORT_NUMBER 22, rename "SSH2"');
+
+  const items = Array.from({ length: 60 }, (_, n) => ({ type: 'PORT_NUMBER', value: 3000 + n }));
+  const big = json(await call('unifi_plan_update_traffic_list', { listId: 'L1', items }));
+  assert.ok(big.confirmation.length < 260, big.confirmation.length);
+  assert.match(big.confirmation, /^UPDATE traffic list "SSH" \(\+60 -1\): \+PORT_NUMBER 3000/); // the totals are visible even when values are cut
+  assert.match(big.confirmation, /\.\.\. and \d+ more$/);
+  assert.match(big.summary, /\+PORT_NUMBER 3059/); // the summary lists everything
+  const r = await call('unifi_apply_change', { approvalCode: big.approvalCode, confirmation: big.confirmation });
+  assert.notEqual(r.isError, true, text(r));
+  assert.equal(state.writes.length, 1);
 }));

@@ -298,9 +298,21 @@ async function planUpdateTrafficList(a) {
   if (!added.length && !removed.length && body.name === cur.name) throw new Error('Nothing to change: the list already has these items');
   const policies = await getAll(await apiPath(`sites/${site}/firewall/policies`));
   const usedBy = policies.filter((x) => JSON.stringify(x).includes(cur.id)).map((x) => x.name);
+  // The permission prompt shows only the confirmation phrase, so it carries the actual values.
+  const show = (i) => (i.value !== undefined ? `${i.type} ${typeof i.value === 'object' ? JSON.stringify(i.value) : i.value}` : JSON.stringify(i));
+  const changes = [...added.map((i) => `+${show(i)}`), ...removed.map((i) => `-${show(i)}`), ...(body.name !== cur.name ? [`rename "${body.name}"`] : [])];
+  const shown = [];
+  let length = 0;
+  for (const c of changes) {
+    if (length + c.length > 150) break;
+    shown.push(c);
+    length += c.length + 2;
+  }
+  if (shown.length < changes.length) shown.push(`... and ${changes.length - shown.length} more`);
+  const phrase = `(+${added.length} -${removed.length}): ${shown.join(', ')}`;
   return makePlan({
-    summary: `Traffic list "${cur.name}" (${cur.type}): add ${added.length}, remove ${removed.length}${body.name !== cur.name ? `, rename to "${body.name}"` : ''}. Used by: ${usedBy.length ? usedBy.map((n) => `"${n}"`).join(', ') : 'no firewall policy'}.`,
-    confirmation: `UPDATE traffic list "${cur.name}"`,
+    summary: `Traffic list "${cur.name}" (${cur.type}): ${changes.join(', ')}. Used by: ${usedBy.length ? usedBy.map((n) => `"${n}"`).join(', ') : 'no firewall policy'}.`,
+    confirmation: `UPDATE traffic list "${cur.name}" ${phrase}`,
     method: 'PUT', path: p, body, before: cur, readCurrent: read,
     details: { added, removed, usedBy },
   });
