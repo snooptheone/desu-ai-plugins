@@ -20,6 +20,7 @@ const RESOURCES = {
   sites: ['Sites of the console', 'sites'],
   pending_devices: ['Devices waiting for adoption', 'pending-devices'],
   devices: ['Managed devices (APs, switches, gateway)', 'sites/{site}/devices'],
+  device: ['One device in detail: switch ports (state, speed) or AP radios (channel, width, band)', 'sites/{site}/devices/{id}', 'deviceId'],
   device_stats: ['Latest statistics of one device (CPU, memory, uplink rates)', 'sites/{site}/devices/{id}/statistics/latest', 'deviceId'],
   clients: ['Connected clients', 'sites/{site}/clients'],
   networks: ['Networks / VLANs', 'sites/{site}/networks'],
@@ -44,7 +45,7 @@ const TOOLS = Object.entries(RESOURCES).map(([name, [description, path, idName]]
   const properties = {};
   if (path.includes('{site}')) properties.site = siteProp;
   if (idName) properties[idName] = { type: 'string', description: `The ${idName}` };
-  if (!['info', 'device_stats'].includes(name)) properties.fields = fieldsProp;
+  if (!['info', 'device', 'device_stats'].includes(name)) properties.fields = fieldsProp;
   return {
     name: `unifi_${name}`,
     description,

@@ -39,6 +39,7 @@ function fakeApi(log, tls) {
     const rel = u.pathname.startsWith(LP) ? CP + u.pathname.slice(LP.length) : u.pathname;
     if (rel === `${CP}/info`) return out(200, { applicationVersion: '10' });
     if (rel === `${CP}/sites`) return out(200, { count: 1, totalCount: 1, data: [{ id: 'S1', name: 'Default' }] });
+    if (rel === `${CP}/sites/S1/devices/D1`) return out(200, { id: 'D1', interfaces: { radios: [{ channel: 36 }] } });
     if (rel === `${CP}/sites/S1/clients`) {
       const off = Number(u.searchParams.get('offset'));
       const lim = Number(u.searchParams.get('limit'));
@@ -97,6 +98,12 @@ test('initialize and tools/list: every tool is read-only', () => withServer({ UN
 test('info and sites', () => withServer({ UNIFI_API_KEY: 'k' }, async ({ call }) => {
   assert.deepEqual(JSON.parse(text(await call('unifi_info', {}))), { applicationVersion: '10' });
   assert.equal(JSON.parse(text(await call('unifi_sites', {})))[0].id, 'S1');
+}));
+
+test('device detail returns the single device object', () => withServer({ UNIFI_API_KEY: 'k' }, async ({ call }) => {
+  const d = JSON.parse(text(await call('unifi_device', { deviceId: 'D1' })));
+  assert.equal(d.interfaces.radios[0].channel, 36);
+  assert.equal((await call('unifi_device', {})).isError, true);
 }));
 
 test('pagination, automatic site, fields projection', () => withServer({ UNIFI_API_KEY: 'k' }, async ({ call }) => {
