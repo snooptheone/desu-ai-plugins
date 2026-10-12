@@ -37,7 +37,7 @@ shunt-agy/
 │   └── plugin.json
 ├── hooks/
 │   ├── hooks.json           # PreToolUse matchers for Read and Bash
-│   ├── check-file-size      # Blocks Read on files > SHUNT_MIN_LINES
+│   ├── check-file-size      # Blocks Read on files > SHUNT_MIN_LINES / SHUNT_MAX_BYTES
 │   └── check-bash-read      # Blocks cat/head/tail on large files
 ├── scripts/
 │   ├── lib/
@@ -67,7 +67,9 @@ code-write --spec "Write tests for UserService" --reference tests/OrderTest.java
 ```
 
 `--reference` is required — without a file to match patterns against, the worker generates
-context-free code that fits nothing in the project. Strips markdown fences from the output.
+context-free code that fits nothing in the project. Strips a markdown fence wrapped around the
+whole output. An existing `--target` is never overwritten unless you add `--force`, and the
+`--reference` file is always refused as a target.
 
 ### One shot per call
 
@@ -80,12 +82,14 @@ where it matters: the corpus goes to the worker model, never into Claude's conte
 ### check-file-size (Read hook)
 
 Fires on every `Read` call. Blocks full-file reads on files exceeding `SHUNT_MIN_LINES`
-(default 350). Allows targeted reads (offset/limit set), files under the threshold, and
-nonexistent files through.
+(default 350) or `SHUNT_MAX_BYTES` (default 100000, which catches a minified bundle on a
+single line). Allows targeted reads (offset/limit set), files under both thresholds,
+binary files (images, PDFs — `agy` can't view them), and nonexistent files through.
 
 ### check-bash-read (Bash hook)
 
-Fires on every `Bash` call. Catches `cat`/`head`/`tail`/`less`/`more` on large files. Allows
+Fires on every `Bash` call. Catches `cat`/`head`/`tail`/`less`/`more` on large files (same
+line and byte thresholds as the Read hook). Allows
 piped commands, redirections, and non-read commands through.
 
 ## Configuration
@@ -95,6 +99,7 @@ Environment variables — add them to the `env` block in `.claude/settings.json`
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `SHUNT_MIN_LINES` | `350` | Line count above which the Read/Bash hooks block and redirect |
+| `SHUNT_MAX_BYTES` | `100000` | Byte size above which the Read/Bash hooks block and redirect, whatever the line count |
 | `AGY_BIN` | `agy` | Override how the Antigravity CLI is launched |
 | `SHUNT_AGY_MODEL` | `gemini-3.8-flash-low` | Worker model passed to `agy --model` |
 | `SHUNT_AGY_EFFORT` | (unset) | Reasoning effort passed to `agy --effort` — only set this for models that take effort separately from the model name (the flash models bake it into the name and reject `--effort` alongside them) |
@@ -114,14 +119,16 @@ Environment variables — add them to the `env` block in `.claude/settings.json`
 bash evals/run.sh
 ```
 
-45 cases, no `agy` or network access needed (~1s to run): 17 `check-file-size` hook cases
-and 17 `check-bash-read` hook cases (ported from Spotify's `shunt` evals — the hook logic
-is unchanged, so the same edge cases apply: boundary lines, offset/limit bypass, env
-overrides, quoted paths, pipes/redirects, nonexistent files), plus 11 `scripts/lib/worker.sh`
-transport cases against a stubbed `agy` binary (success/error/malformed responses, the
-oversized-payload guard, and regression cases for the two bugs this plugin hit while wiring
-up the real agy: the `--effort`/model-name conflict, and the stream-json input/output
-pairing).
+65 cases, no `agy` or network access needed (~1s to run): 22 `check-file-size` hook cases
+and 18 `check-bash-read` hook cases (the first 17 of each are ported from Spotify's `shunt`
+evals, since the line-count logic is unchanged: boundary lines, offset/limit bypass, env
+overrides, quoted paths, pipes/redirects, nonexistent files; the rest cover what this fork
+added: the byte limit and the binary-file pass-through), plus 25 transport cases against a
+stubbed `agy` binary (`scripts/lib/worker.sh`: success/error/malformed responses, the
+oversized-payload guard; `bulk-read`/`code-write`: flags without a value, markdown-fence
+stripping, `--target` checks: overwrite, same file as `--reference`, unwritable path; and regression cases for the two bugs this plugin hit
+while wiring up the real agy: the `--effort`/model-name conflict, and the stream-json
+input/output pairing).
 
 ## Benchmarks
 

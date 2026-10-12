@@ -24,6 +24,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Every marketplace entry matches its plugin manifest (name and version)
         run: |
@@ -33,6 +35,23 @@ jobs:
               || { echo "::error::$source manifest does not match '$name'"; exit 1; }
             test -z "$version" || test "$(jq -r .version "$source/.claude-plugin/plugin.json")" = "$version" \
               || { echo "::error::$name version differs between marketplace.json and plugin.json"; exit 1; }
+          done
+
+      # Installed copies only update when the version changes, so a change that
+      # ships (anything but evals, tests and the README) must bump it. A SKILL.md ships.
+      - name: A changed plugin bumps its version
+        if: github.event_name == 'pull_request'
+        env:
+          BASE: ${{ github.base_ref }}
+        run: |
+          jq -r '.plugins[] | "\(.name) \(.source)"' .claude-plugin/marketplace.json |
+          while read -r name source; do
+            source=${source#./}
+            git diff --quiet "origin/$BASE" -- "$source" ":(exclude)$source/evals" ":(exclude)$source/tests" ":(exclude)$source/README.md" && continue
+            old=$(git show "origin/$BASE:$source/.claude-plugin/plugin.json" 2>/dev/null | jq -r .version)
+            test -n "$old" || continue # new plugin
+            test "$old" != "$(jq -r .version "$source/.claude-plugin/plugin.json")" \
+              || { echo "::error::$name changed but its version is still $old"; exit 1; }
           done
 
   unifi:
@@ -49,4 +68,4 @@ jobs:
           node-version: ${{ matrix.node }}
 
       - name: Tests
-        run: node --test plugins/unifi/tests/server.test.js plugins/unifi/tests/expiry.test.js plugins/unifi/tests/applylog.test.js
+        run: node --test plugins/unifi/tests/*.test.js

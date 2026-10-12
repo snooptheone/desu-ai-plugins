@@ -17,6 +17,7 @@ trap 'rm -rf "$WORK"' EXIT
 
 seq 1 400 > "$WORK/big.txt"
 seq 1 10 > "$WORK/small.txt"
+head -c 200000 /dev/urandom > "$WORK/shot.png" # binary: hundreds of newline bytes, must not be denied
 
 # NDJSON lines only (stderr noise is dropped by fromjson?).
 events() { jq -Rc 'fromjson?' "$1"; }
@@ -66,9 +67,11 @@ check() { # name, condition exit code
 
 run_read big "$WORK/big.txt"
 run_read small "$WORK/small.txt"
+run_read image "$WORK/shot.png"
 
 require_shape big
 require_shape small
+require_shape image
 
 big_res=$(first_tool_result "$LOGS/big.jsonl")
 small_res=$(first_tool_result "$LOGS/small.jsonl")
@@ -77,6 +80,7 @@ echo "Integration (real claude CLI)"
 cat "$LOGS"/*.jsonl | grep -q "validation failed"; check "no hook schema validation errors" $((! $?))
 [ "$(hook_decisions "$LOGS/big.jsonl")" = "deny" ]; check "large Read: hook event records permissionDecision=deny" $?
 [ -z "$(hook_decisions "$LOGS/small.jsonl")" ]; check "small Read: hook event is silent (allow)" $?
+[ -z "$(hook_decisions "$LOGS/image.jsonl")" ]; check "binary Read: hook event is silent (allow)" $?
 echo "$big_res" | grep -q "File is 400 lines"; check "large Read: model receives the deny reason" $?
 echo "$big_res" | grep -q "399.399"; check "large Read: file content is not returned" $((! $?))
 echo "$small_res" | grep -q "10.10"; check "small Read: real file content is returned" $?

@@ -12,8 +12,7 @@ A marketplace repo for Claude Code plugins. Currently ships two plugins:
   `UNIFI_ENABLE_WRITES=true` and always go plan -> `unifi_apply_change` (one-use code, exact
   confirmation phrase, resource unchanged, change logged first), and `unifi_apply_change` stays flagged
   `_meta["anthropic/requiresUserInteraction"]` so Claude Code always prompts the person. Do not weaken that flow, and
-  do not add a write that skips it. Tests: `node --test plugins/unifi/tests/server.test.js
-  plugins/unifi/tests/expiry.test.js`; CI runs them on Linux (Node 18 and 22) and must pass
+  do not add a write that skips it. Tests: `node --test plugins/unifi/tests/*.test.js`; CI runs them on Linux (Node 18 and 22) and must pass
   before a PR is merged. macOS and Windows are not tested yet.
 - `.claude-plugin/marketplace.json` — exposes this repo as a Claude Code
   marketplace (`claude plugin marketplace add snooptheone/desu-ai-plugins`).
@@ -62,15 +61,15 @@ A marketplace repo for Claude Code plugins. Currently ships two plugins:
 ## Validation
 
 ```bash
-# Hook + transport evals (45 cases, no agy access needed, ~1s):
+# Hook + transport evals (65 cases, no agy access needed, ~1s):
 bash plugins/shunt-agy/evals/run.sh
 
 # End-to-end delegation + token-savings benchmark (needs authenticated agy):
 cd plugins/shunt-agy/evals && ./benchmark.sh
 ```
 
-`evals/run.sh` covers `check-file-size` and `check-bash-read` (17 cases each, ported from
-Spotify's `shunt` evals) plus `scripts/lib/worker.sh`'s transport plumbing (11 cases against
+`evals/run.sh` covers `check-file-size` and `check-bash-read` (22 and 18 cases; the original 17 each are ported from
+Spotify's `shunt` evals) plus `scripts/lib/worker.sh`'s transport plumbing and the script flag/fence handling (25 cases against
 a stubbed `agy` binary in `evals/transport-evals.sh`) — including regression cases for both
 bugs already hit once in this repo (the `--effort`/model-name conflict, and stream-json
 input requiring stream-json output). Run it before touching anything under `hooks/` or

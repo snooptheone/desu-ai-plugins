@@ -21,6 +21,7 @@ AGY_MODEL="${SHUNT_AGY_MODEL:-gemini-3.8-flash-low}"
 AGY_EFFORT="${SHUNT_AGY_EFFORT:-}"
 SHUNT_TIMEOUT_SECONDS="${SHUNT_TIMEOUT_SECONDS:-180}"
 SHUNT_MAX_PAYLOAD_BYTES="${SHUNT_MAX_PAYLOAD_BYTES:-2000000}"
+case "$SHUNT_MAX_PAYLOAD_BYTES" in ''|*[!0-9]*) SHUNT_MAX_PAYLOAD_BYTES=2000000 ;; esac
 
 # mktemp with cleanup on script exit. Usage: shunt_tmpfile <varname>
 SHUNT_TMPFILES=()
@@ -30,6 +31,12 @@ shunt_tmpfile() {
   SHUNT_TMPFILES+=("$f")
   trap 'rm -f "${SHUNT_TMPFILES[@]}"' EXIT
   printf -v "$1" '%s' "$f"
+}
+
+# Exits when a flag has no value left; `shift 2` would fail without moving and
+# the parse loop would spin forever. Usage: shunt_need_value <flag> $#
+shunt_need_value() {
+  [ "$2" -ge 2 ] || { echo "Error: $1 needs a value" >&2; exit 1; }
 }
 
 shunt_preflight() {

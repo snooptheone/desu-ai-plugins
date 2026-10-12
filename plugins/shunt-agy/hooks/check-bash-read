@@ -1,13 +1,17 @@
 #!/bin/bash
-# Adapted, near-verbatim, from Spotify's shunt plugin (Apache-2.0):
+# Adapted from Spotify's shunt plugin (Apache-2.0):
 # https://github.com/spotify/portal-ai-plugins/blob/main/plugins/shunt/hooks/check-bash-read
-# See /NOTICE for what was reused vs. changed in this fork.
+# Changes: hookSpecificOutput output format and a byte limit. See /NOTICE for
+# what was reused vs. changed in this fork.
 #
 # Block Bash commands that read large files, redirect to the bulk-reader skill.
 # Catches cat/head/tail that bypass the Read hook.
 
 MIN_LINES="${SHUNT_MIN_LINES:-350}"
 case "$MIN_LINES" in ''|*[!0-9]*) MIN_LINES=350 ;; esac
+# Newlines alone miss a minified bundle on one line, so size counts too.
+MAX_BYTES="${SHUNT_MAX_BYTES:-100000}"
+case "$MAX_BYTES" in ''|*[!0-9]*) MAX_BYTES=100000 ;; esac
 
 input=$(cat)
 
@@ -36,6 +40,7 @@ fi
 [ ! -f "$file_path" ] && exit 0
 
 lines=$(wc -l < "$file_path" 2>/dev/null | tr -d ' ' || echo "0")
-if [ "$lines" -gt "$MIN_LINES" ]; then
-  jq -n --arg r "File is ${lines} lines (threshold: ${MIN_LINES}). Use the bulk-reader skill to delegate this read to agy instead of cat/head/tail." '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $r}}'
+bytes=$(wc -c < "$file_path" 2>/dev/null | tr -d ' ' || echo "0")
+if [ "$lines" -gt "$MIN_LINES" ] || [ "$bytes" -gt "$MAX_BYTES" ]; then
+  jq -n --arg r "File is ${lines} lines, ${bytes} bytes (limits: ${MIN_LINES} lines, ${MAX_BYTES} bytes). Use the bulk-reader skill to delegate this read to agy instead of cat/head/tail." '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $r}}'
 fi

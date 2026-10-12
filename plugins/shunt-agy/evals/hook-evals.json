@@ -1,7 +1,7 @@
 {
   "skill_name": "shunt-agy",
   "description": "Evals for the check-file-size PreToolUse hook",
-  "source": "Ported verbatim from Spotify's shunt plugin (Apache-2.0): https://github.com/spotify/portal-ai-plugins/blob/main/plugins/shunt/evals/hook-evals.json — hook logic is unchanged, only the delegation target differs, so the same cases apply.",
+  "source": "Cases 1-17 ported verbatim from Spotify's shunt plugin (Apache-2.0): https://github.com/spotify/portal-ai-plugins/blob/main/plugins/shunt/evals/hook-evals.json — they still apply because the line-count logic is unchanged. Later cases cover behavior added in this fork: the byte limit (SHUNT_MAX_BYTES) and the binary-file pass-through.",
   "evals": [
     {
       "id": 1,
@@ -141,6 +141,83 @@
       "env": { "SHUNT_MIN_LINES": "abc" },
       "expected_decision": "block",
       "reason": "Non-numeric SHUNT_MIN_LINES falls back to 350 — 351-line file blocked"
+    },
+    {
+          "id": 18,
+          "name": "binary-file-many-newlines",
+          "input": {
+                "tool_input": {
+                      "file_path": "{{FIXTURES}}/shot.png"
+                }
+          },
+          "fixture": {
+                "lines": 400,
+                "binary": true
+          },
+          "expected_decision": "allow",
+          "reason": "Binary (image/PDF): newline bytes are not lines and agy cannot view it — must not be redirected"
+    },
+    {
+          "id": 19,
+          "name": "minified-one-line",
+          "input": {
+                "tool_input": {
+                      "file_path": "{{FIXTURES}}/min.js"
+                }
+          },
+          "fixture": {
+                "bytes": 200000
+          },
+          "expected_decision": "block",
+          "reason": "One 200 KB line has 0 newlines but is a bulk read — size limit blocks it"
+    },
+    {
+          "id": 20,
+          "name": "minified-under-byte-limit",
+          "input": {
+                "tool_input": {
+                      "file_path": "{{FIXTURES}}/small-min.js"
+                }
+          },
+          "fixture": {
+                "bytes": 5000
+          },
+          "expected_decision": "allow",
+          "reason": "One short line, under both limits"
+    },
+    {
+          "id": 21,
+          "name": "byte-limit-env",
+          "input": {
+                "tool_input": {
+                      "file_path": "{{FIXTURES}}/min-env.js"
+                }
+          },
+          "fixture": {
+                "bytes": 5000
+          },
+          "env": {
+                "SHUNT_MAX_BYTES": "1000"
+          },
+          "expected_decision": "block",
+          "reason": "SHUNT_MAX_BYTES lowers the byte limit"
+    },
+    {
+          "id": 22,
+          "name": "byte-limit-env-invalid",
+          "input": {
+                "tool_input": {
+                      "file_path": "{{FIXTURES}}/min-bad.js"
+                }
+          },
+          "fixture": {
+                "bytes": 5000
+          },
+          "env": {
+                "SHUNT_MAX_BYTES": "abc"
+          },
+          "expected_decision": "allow",
+          "reason": "Non-numeric SHUNT_MAX_BYTES falls back to the default"
     }
   ]
 }

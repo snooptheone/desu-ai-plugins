@@ -29,6 +29,12 @@ Changes made in this derivative work:
   - `scripts/lib/aika.sh` was replaced with `scripts/lib/worker.sh`, using
     agy's `stream-json` headless input/output protocol instead of the
     Portal CLI's `aika:invoke-chat` action.
+  - `hooks/check-file-size` and `hooks/check-bash-read` also differ in
+    behavior: they emit Claude Code's `hookSpecificOutput` permission
+    format, also block by byte size (`SHUNT_MAX_BYTES`), and the Read hook
+    lets binary files through. `scripts/code-write` and `scripts/bulk-read`
+    reject flags without a value, and `code-write` strips only a markdown
+    fence wrapped around the whole answer.
   - Benchmark fixtures under `plugins/shunt-agy/evals/fixtures/` were
     copied verbatim from the original repository (same license) to keep
     the token-savings measurements comparable.

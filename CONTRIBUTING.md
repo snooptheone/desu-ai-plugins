@@ -9,7 +9,7 @@ compatibility, or portability to other worker models).
 bash plugins/shunt-agy/evals/run.sh
 ```
 
-45 cases, no `agy` or network access needed, ~1s. CI runs this on every PR — a red build
+No `agy` or network access needed, ~1s. CI runs this on every PR — a red build
 means the PR isn't mergeable as-is.
 
 If you have an authenticated `agy` CLI and want to sanity-check real token savings:
@@ -17,6 +17,14 @@ If you have an authenticated `agy` CLI and want to sanity-check real token savin
 ```bash
 cd plugins/shunt-agy/evals && ./benchmark.sh
 ```
+
+## Bump the version when a plugin changes
+
+Installed copies only update when the version changes. If a PR changes anything that ships
+in a plugin (hooks, scripts, skills including `SKILL.md`, MCP server code, manifests), raise
+`version` in both `plugins/<name>/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`.
+CI fails the PR otherwise. Changes limited to `evals/`, `tests/` or the plugin `README.md`
+don't need a bump.
 
 ## If you're touching `hooks/` or `scripts/` under `plugins/shunt-agy`
 

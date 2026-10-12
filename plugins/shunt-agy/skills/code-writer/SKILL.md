@@ -11,6 +11,8 @@ ${CLAUDE_PLUGIN_ROOT}/scripts/code-write --spec "<what to generate>" --reference
 ${CLAUDE_PLUGIN_ROOT}/scripts/code-write --spec "<what to generate>" --reference <reference-file>
 ```
 
+An existing `--target` is not overwritten unless you add `--force`.
+
 Each call is independent. To build on what was just generated, pass that file as the
 `--reference` for the next call.
 
