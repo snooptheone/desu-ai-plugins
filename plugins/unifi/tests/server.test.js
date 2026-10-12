@@ -1,5 +1,5 @@
 'use strict';
-// Run: node --test plugins/unifi/tests
+// Run: node --test plugins/unifi/tests/*.test.js
 const test = require('node:test');
 const { after } = test;
 const assert = require('node:assert/strict');
@@ -63,7 +63,11 @@ function fakeApi(log, tls, state) {
     if (rel === `${CP}/info`) return out(200, { applicationVersion: '10' });
     if (rel === `${CP}/sites`) return out(200, { count: 1, totalCount: 1, data: [{ id: 'S1', name: 'Default' }] });
     if (rel === `${CP}/sites/S1/devices/D1`) return out(200, state.device);
-    if (rel === `${CP}/sites/S1/devices/D1/actions`) return out(200, {});
+    if (rel === `${CP}/sites/S1/devices/D1/actions`) {
+      if (!state.actionText) return out(200, {});
+      res.writeHead(200, { 'content-type': 'text/plain' });
+      return res.end(state.actionText);
+    }
     if (rel === `${CP}/sites/S1/firewall/zones`) return list([{ id: 'Z1', name: 'External' }, { id: 'Z2', name: 'Gateway' }]);
     if (rel === `${CP}/sites/S1/firewall/policies`) return list(Object.values(state.policies));
     let m = rel.match(/\/sites\/S1\/firewall\/policies\/(\w+)$/);
@@ -282,6 +286,16 @@ test('planning changes nothing; apply needs the code and the exact confirmation'
     assert.ok(!JSON.stringify(lines).includes('"k"'), 'the API key must not be logged');
   });
 });
+
+test('a write that succeeds with a non-JSON body is reported as applied, not failed', () => withServer(WRITE_ENV(), async ({ call, state }) => {
+  state.actionText = 'OK';
+  const plan = json(await call('unifi_plan_restart_device', { deviceId: 'D1' }));
+  const ok = await call('unifi_apply_change', { approvalCode: plan.approvalCode, confirmation: plan.confirmation });
+  assert.notEqual(ok.isError, true, text(ok));
+  assert.equal(json(ok).result.raw, 'OK');
+  assert.match(json(ok).result.warning, /check that the change took effect/);
+  assert.equal(state.writes.length, 1);
+}));
 
 test('a plan goes stale when the resource changes before apply', () => withServer(WRITE_ENV(), async ({ call, state }) => {
   const plan = json(await call('unifi_plan_restart_device', { deviceId: 'D1' }));

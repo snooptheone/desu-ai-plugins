@@ -11,6 +11,7 @@ CLAUDE.local.md
 
 # Scratch / temp
 *.tmp
+plugins/shunt-agy/evals/.fixtures/
 
 # Python
 __pycache__/

@@ -1,7 +1,7 @@
 {
   "skill_name": "shunt-agy",
   "description": "Evals for the check-bash-read PreToolUse hook",
-  "source": "Ported verbatim from Spotify's shunt plugin (Apache-2.0): https://github.com/spotify/portal-ai-plugins/blob/main/plugins/shunt/evals/bash-hook-evals.json — hook logic is unchanged, only the delegation target differs, so the same cases apply.",
+  "source": "Cases 1-17 ported verbatim from Spotify's shunt plugin (Apache-2.0): https://github.com/spotify/portal-ai-plugins/blob/main/plugins/shunt/evals/bash-hook-evals.json — they still apply because the line-count logic is unchanged. Later cases cover behavior added in this fork: the byte limit (SHUNT_MAX_BYTES).",
   "evals": [
     {
       "id": 1,
@@ -138,6 +138,20 @@
       "fixture": null,
       "expected_decision": "allow",
       "reason": "Parser bug: -n and 5 are separate args, 5 is treated as file path — file '5' won't exist so allow"
+    },
+    {
+          "id": 18,
+          "name": "cat-minified-one-line",
+          "input": {
+                "tool_input": {
+                      "command": "cat {{FIXTURES}}/min.js"
+                }
+          },
+          "fixture": {
+                "bytes": 200000
+          },
+          "expected_decision": "block",
+          "reason": "cat of a 200 KB single-line file is a bulk read even with 0 newlines"
     }
   ]
 }

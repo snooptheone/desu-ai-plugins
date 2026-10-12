@@ -1,7 +1,7 @@
 # unifi
 
-A [Claude Code](https://claude.ai/claude-code) plugin that gives Claude a read-only view of your UniFi
-Network, built only on the official [UniFi Network API](https://developer.ui.com/network) and the Site
+A [Claude Code](https://claude.ai/claude-code) plugin that gives Claude a view of your UniFi
+Network that is read-only by default, built only on the official [UniFi Network API](https://developer.ui.com/network) and the Site
 Manager Connector. Ask who is on the network, what devices are online, or how a VLAN, SSID or firewall
 policy is set up.
 
@@ -54,7 +54,7 @@ expiration date.
 ## Development
 
 ```bash
-node --test plugins/unifi/tests/server.test.js
+node --test plugins/unifi/tests/*.test.js
 ```
 
 The tests start the server against a local fake API; they need no network and no key.

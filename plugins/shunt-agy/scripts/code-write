@@ -6,19 +6,21 @@
 # and /NOTICE.
 #
 # Delegate boilerplate generation to the agy worker model.
-# Usage: code-write --spec "write tests for UserService" --reference ref.test.ts --target out.test.ts
+# Usage: code-write --spec "write tests for UserService" --reference ref.test.ts --target out.test.ts [--force]
 
 . "$(cd "$(dirname "$0")" && pwd)/lib/worker.sh"
 
 spec=""
 reference=""
 target=""
+force=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --spec)      spec="$2"; shift 2 ;;
-    --reference) reference="$2"; shift 2 ;;
-    --target)    target="$2"; shift 2 ;;
+    --spec)       shunt_need_value --spec $#; spec="$2"; shift 2 ;;
+    --reference)  shunt_need_value --reference $#; reference="$2"; shift 2 ;;
+    --target)     shunt_need_value --target $#; target="$2"; shift 2 ;;
+    --force)     force=1; shift ;;
     *)           shift ;;
   esac
 done
@@ -40,6 +42,22 @@ if [ ! -f "$reference" ]; then
   exit 1
 fi
 
+# Checked before any model call: a wrong --target must not cost a generation or a file.
+if [ -n "$target" ]; then
+  if [ "$target" -ef "$reference" ]; then
+    echo "Error: --target is the same file as --reference" >&2
+    exit 1
+  fi
+  if [ -d "$target" ] || [ ! -d "$(dirname "$target")" ]; then
+    echo "Error: --target must be a file inside an existing directory: $target" >&2
+    exit 1
+  fi
+  if [ -e "$target" ] && [ -z "$force" ]; then
+    echo "Error: $target already exists — pass --force to overwrite it" >&2
+    exit 1
+  fi
+fi
+
 shunt_preflight || exit 1
 shunt_tmpfile message_file || exit 1
 shunt_tmpfile answer_file || exit 1
@@ -53,14 +71,22 @@ shunt_tmpfile answer_file || exit 1
 
 shunt_invoke "$message_file" > "$answer_file" || exit 1
 
-# Strip markdown fences (model sometimes wraps despite instructions)
-clean=$(sed '/^```/d' "$answer_file")
+# Strip a markdown fence the model wrapped around the whole answer despite
+# instructions: an opening fence on the first line paired with a closing fence
+# on the last. Fences inside the content (a README, a docstring) stay.
+body=$(cat "$answer_file")
+first=${body%%$'\n'*}
+last=${body##*$'\n'}
+if [[ $body == *$'\n'* && $first == '```'* && $last =~ ^'```'[[:space:]]*$ ]]; then
+  rest=${body#*$'\n'}
+  if [[ $rest == *$'\n'* ]]; then body=${rest%$'\n'*}; else body=; fi
+fi
 
 if [ -n "$target" ]; then
-  echo "$clean" > "$target"
+  printf '%s\n' "$body" > "$target"
   echo "Wrote $(wc -l < "$target" | tr -d ' ') lines to $target" >&2
 else
-  echo "$clean"
+  printf '%s\n' "$body"
 fi
 
 echo "[shunt-agy: delegated to $AGY_MODEL]" >&2

@@ -21,10 +21,16 @@ PASSED=0
 FAILED=0
 TOTAL=0
 
+# Fixture shapes: {"lines": N} text; {"lines": N, "binary": true} text with NUL
+# bytes (like an image); {"bytes": N} one line of N bytes (like a minified bundle).
 generate_fixture() {
-  local path="$1" lines="$2"
-  if [ "$lines" -eq 0 ]; then
+  local path="$1" lines="$2" binary="$3" bytes="$4"
+  if [ "$bytes" -gt 0 ]; then
+    head -c "$bytes" /dev/zero | tr '\0' 'a' > "$path"
+  elif [ "$lines" -eq 0 ]; then
     touch "$path"
+  elif [ "$binary" = true ]; then
+    seq 1 "$lines" | awk '{print "line "NR}' | tr '1' '\0' > "$path"
   else
     seq 1 "$lines" | awk '{print "line "NR}' > "$path"
   fi
@@ -44,7 +50,10 @@ setup_fixtures() {
     [ "$fixture" = "null" ] && continue
 
     local lines
-    lines=$(jq -r ".evals[$i].fixture.lines" "$evals_file")
+    lines=$(jq -r ".evals[$i].fixture.lines // 0" "$evals_file")
+    local binary bytes
+    binary=$(jq -r ".evals[$i].fixture.binary // false" "$evals_file")
+    bytes=$(jq -r ".evals[$i].fixture.bytes // 0" "$evals_file")
 
     local input_path
     input_path=$(jq -r ".evals[$i].input.tool_input.file_path // empty" "$evals_file")
@@ -57,7 +66,7 @@ setup_fixtures() {
     # reduce to the command name itself; skip those rather than generating
     # a junk file in the working directory.
     case "$input_path" in
-      "$FIXTURES"/*) generate_fixture "$input_path" "$lines" ;;
+      "$FIXTURES"/*) generate_fixture "$input_path" "$lines" "$binary" "$bytes" ;;
     esac
   done
 }

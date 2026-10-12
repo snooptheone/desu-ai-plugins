@@ -54,7 +54,7 @@ for i in $(seq 0 $((n_scenarios - 1))); do
     no_shunt_tok=$(tokens_of "${context_files[@]}")
 
     target=$(mktemp)
-    "$CODE_WRITE" --spec "$spec" --reference "$reference" --target "$target" 2>/dev/null
+    "$CODE_WRITE" --spec "$spec" --reference "$reference" --target "$target" --force 2>/dev/null
     rc=$?
     if [ $rc -ne 0 ]; then
       printf '%-24s %14s %14s %10s\n' "$name" "$no_shunt_tok" "ERROR" "-"

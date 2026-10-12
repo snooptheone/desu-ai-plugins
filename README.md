@@ -13,7 +13,7 @@ generation — to a cheaper worker model via the [`agy` (Antigravity)
 CLI](https://antigravity.google/docs/cli), instead of paying frontier-model
 tokens to read large files or write predictable code.
 
-Hooks block `Read`/`cat`/`head`/`tail` on files over a line-count threshold
+Hooks block `Read`/`cat`/`head`/`tail` on files over a line-count or size threshold
 and redirect Claude to two scripts (`bulk-read`, `code-write`) that delegate
 the work to `agy`'s headless mode. File contents and generation specs go to
 the worker model over stdin and never enter Claude's own context — only the

@@ -1,11 +1,13 @@
 ---
 name: unifi
 description: >
-  Read-only view of the user's UniFi network through the official UniFi Network API:
-  connected clients, devices and their stats, networks/VLANs, WiFi SSIDs, firewall
-  policies and zones, DNS policies, WANs and VPN. Use when the user asks who is on the
-  network, what devices are online, how the network is configured, or about firewall,
-  WiFi, VLAN or VPN settings, even if they do not say "UniFi".
+  The user's UniFi network through the official UniFi Network API. Reads: connected clients,
+  devices and their stats, networks/VLANs, WiFi SSIDs, firewall policies and zones, DNS policies,
+  WANs and VPN. Use when the user asks who is on the network, what devices are online, how the
+  network is configured, or about firewall, WiFi, VLAN or VPN settings, even if they do not say
+  "UniFi". Also plans and applies a few changes (restart a device, enable or disable a firewall
+  policy, edit a traffic list) when the user turned on the enable_writes option, always after
+  asking; use it for any such change request.
 ---
 
 # UniFi
@@ -50,7 +52,7 @@ client or change most settings; do not promise what the tools below do not do.
 | `unifi_plan_set_firewall_policy` | Enables/disables a user-defined firewall policy, or turns its logging on/off |
 | `unifi_plan_update_traffic_list` | Replaces all items of a port or IP list (send the full new list) |
 
-Every change takes two steps, and you may not skip or merge them:
+Every change takes these steps, and you may not skip or merge them:
 1. Call the plan tool. It changes nothing and returns a `summary`, an `approvalCode` (valid 5 minutes,
    one use) and a `confirmation` phrase.
 2. Show the user the summary, including who uses a traffic list and every value added or removed (not

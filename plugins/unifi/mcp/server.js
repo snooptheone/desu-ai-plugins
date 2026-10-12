@@ -126,6 +126,9 @@ async function request(method, url, jsonBody) {
   try {
     return JSON.parse(res.text);
   } catch {
+    // A 2xx write was most likely applied; reporting a failure could get it retried. But a proxy
+    // can also answer 2xx with an error page, so say that the result is unconfirmed.
+    if (method !== 'GET') return { raw: res.text.slice(0, 200), warning: 'The console answered 2xx with a body that is not JSON; check that the change took effect.' };
     throw new Error(`Not JSON from ${url.split('?')[0]} (HTTP ${res.status}): ${res.text.slice(0, 200)}`);
   }
 }

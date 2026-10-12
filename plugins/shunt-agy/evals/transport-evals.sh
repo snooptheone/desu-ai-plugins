@@ -49,6 +49,9 @@ case "${FAKE_AGY_MODE:-success}" in
     echo 'not json' >&2
     exit 1
     ;;
+  custom)
+    jq -nc --arg r "$FAKE_AGY_RESPONSE" '{event: "result", result: {status: "SUCCESS", response: $r}}'
+    ;;
   empty-response-field)
     echo '{"event":"result","result":{"status":"SUCCESS","response":""}}'
     ;;
@@ -151,6 +154,21 @@ else
   FAILED=$((FAILED + 1))
 fi
 
+# 6b. A non-numeric limit falls back to the default instead of silently disabling the guard
+# (a bad value used to make the size test error out and let any payload through).
+big=$(mktemp); head -c 2100000 /dev/zero | tr '\0' 'a' > "$big"
+: > "$STUB_DIR/args.txt"
+(export AGY_BIN="$STUB_DIR/agy" SHUNT_MAX_PAYLOAD_BYTES=2MB FAKE_AGY_MODE=success; . "$PLUGIN_DIR/scripts/lib/worker.sh"; shunt_invoke "$big" >/dev/null 2>/dev/null)
+rc=$?
+if [ "$rc" -ne 0 ] && [ ! -s "$STUB_DIR/args.txt" ]; then
+  printf "  \033[32mPASS\033[0m  %-30s rc=%s, agy never invoked\n" "bad-payload-limit-uses-default" "$rc"
+  PASSED=$((PASSED + 1))
+else
+  printf "  \033[31mFAIL\033[0m  %-30s rc=%s\n" "bad-payload-limit-uses-default" "$rc"
+  FAILED=$((FAILED + 1))
+fi
+rm -f "$big"
+
 # 7. SHUNT_AGY_EFFORT unset (default) never passes --effort to agy — this is
 # the exact bug that broke the flash models the first time this was wired up.
 : > "$STUB_DIR/args.txt"
@@ -188,6 +206,77 @@ else
   FAILED=$((FAILED + 1))
 fi
 rm -f "$TRICKY"
+
+# 11. A flag with no value fails fast instead of spinning forever in the parse loop.
+# Needs `timeout` (GNU coreutils; stock macOS doesn't ship it) to bound a hang.
+if ! command -v timeout >/dev/null 2>&1; then
+  printf "  SKIP  %-30s no timeout command on PATH\n" "flag-without-value-fails"
+else
+  for cmd in "bulk-read --paths $MSG --question" "code-write --reference $MSG --spec" "code-write --spec x --reference $MSG --target"; do
+    out=$(export AGY_BIN="$STUB_DIR/agy"; timeout 5 bash "$PLUGIN_DIR/scripts/${cmd%% *}" ${cmd#* } 2>&1)
+    rc=$?
+    if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "needs a value"; then
+      printf "  \033[32mPASS\033[0m  %-30s %s\n" "flag-without-value-fails" "${cmd##* }"
+      PASSED=$((PASSED + 1))
+    else
+      printf "  \033[31mFAIL\033[0m  %-30s %s rc=%s (124 = hung)\n" "flag-without-value-fails" "${cmd##* }" "$rc"
+      FAILED=$((FAILED + 1))
+    fi
+  done
+fi
+
+# 12. code-write strips a fence wrapped around the whole answer, but keeps
+# fences that belong to the content.
+code_write() { # <FAKE_AGY_RESPONSE> -> stdout of code-write
+  (export AGY_BIN="$STUB_DIR/agy" FAKE_AGY_MODE=custom FAKE_AGY_RESPONSE="$1"; bash "$PLUGIN_DIR/scripts/code-write" --spec x --reference "$MSG" 2>/dev/null)
+}
+assert_equals() {
+  local name="$1" actual="$2" expected="$3"
+  if [ "$actual" = "$expected" ]; then
+    printf "  \033[32mPASS\033[0m  %-30s output as expected\n" "$name"
+    PASSED=$((PASSED + 1))
+  else
+    printf "  \033[31mFAIL\033[0m  %-30s got %q\n" "$name" "$actual"
+    FAILED=$((FAILED + 1))
+  fi
+}
+assert_equals "wrapping-fence-stripped" "$(code_write $'```ts\nconst a = 1;\n```')" "const a = 1;"
+assert_equals "inner-fences-kept" "$(code_write $'# Title\n```bash\nls\n```\nDone')" $'# Title\n```bash\nls\n```\nDone'
+assert_equals "doc-ending-in-fence-kept" "$(code_write $'Usage:\n```\nrun it\n```')" $'Usage:\n```\nrun it\n```'
+assert_equals "fence-trailing-space-stripped" "$(code_write $'```ts\nconst a = 1;\n``` ')" "const a = 1;"
+assert_equals "unfenced-code-untouched" "$(code_write $'a\nb')" $'a\nb'
+
+# 13. --target never overwrites by accident: an existing file needs --force, and the
+# reference file itself is refused even with --force. Refusals happen before agy runs.
+TGT=$(mktemp); echo original > "$TGT"
+cw() { (export AGY_BIN="$STUB_DIR/agy" FAKE_AGY_MODE=custom FAKE_AGY_RESPONSE="new code"; bash "$PLUGIN_DIR/scripts/code-write" --spec x "$@" 2>&1); }
+: > "$STUB_DIR/args.txt"
+out=$(cw --reference "$MSG" --target "$TGT"); rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "pass --force" && [ "$(cat "$TGT")" = original ] && [ ! -s "$STUB_DIR/args.txt" ]; then
+  printf "  \033[32mPASS\033[0m  %-30s file untouched, agy never invoked\n" "existing-target-refused"; PASSED=$((PASSED + 1))
+else
+  printf "  \033[31mFAIL\033[0m  %-30s rc=%s out=%q\n" "existing-target-refused" "$rc" "$out"; FAILED=$((FAILED + 1))
+fi
+out=$(cw --reference "$MSG" --target "$MSG" --force); rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "same file as --reference" && [ "$(cat "$MSG")" = "hello world" ]; then
+  printf "  \033[32mPASS\033[0m  %-30s reference file untouched\n" "target-equals-reference-refused"; PASSED=$((PASSED + 1))
+else
+  printf "  \033[31mFAIL\033[0m  %-30s rc=%s out=%q\n" "target-equals-reference-refused" "$rc" "$out"; FAILED=$((FAILED + 1))
+fi
+# A target that cannot be written (missing directory, or a directory) is refused before
+# agy runs, so a generation is never paid for and then lost.
+: > "$STUB_DIR/args.txt"
+for bad in "$STUB_DIR/no/such/dir/out.ts" "$STUB_DIR"; do
+  out=$(cw --reference "$MSG" --target "$bad" --force); rc=$?
+  if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "existing directory" && [ ! -s "$STUB_DIR/args.txt" ]; then
+    printf "  \033[32mPASS\033[0m  %-30s agy never invoked\n" "unwritable-target-refused"; PASSED=$((PASSED + 1))
+  else
+    printf "  \033[31mFAIL\033[0m  %-30s target=%s rc=%s out=%q\n" "unwritable-target-refused" "$bad" "$rc" "$out"; FAILED=$((FAILED + 1))
+  fi
+done
+cw --reference "$MSG" --target "$TGT" --force >/dev/null
+assert_equals "force-overwrites-target" "$(cat "$TGT")" "new code"
+rm -f "$TGT"
 
 rm -f "$MSG"
 
