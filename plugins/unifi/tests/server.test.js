@@ -31,12 +31,16 @@ function selfSigned() {
 
 const newState = () => ({
   writes: [],
+  private: [],
   device: { id: 'D1', name: 'AP1', model: 'U7 Pro', state: 'ONLINE', interfaces: { radios: [{ channel: 36 }] } },
   policies: {
     P1: { id: 'P1', index: 5, name: 'SSH', enabled: true, loggingEnabled: true, action: { type: 'ALLOW' }, ipProtocolScope: { ipVersion: 'IPV6' }, source: { zoneId: 'Z1' }, destination: { zoneId: 'Z2', trafficFilter: { portFilter: { trafficMatchingListId: 'L1' } } }, metadata: { origin: 'USER_DEFINED' } },
     P2: { id: 'P2', index: 6, name: 'Block All Traffic', enabled: true, loggingEnabled: false, action: { type: 'BLOCK' }, ipProtocolScope: { ipVersion: 'IPV4_AND_IPV6' }, source: { zoneId: 'Z1' }, destination: { zoneId: 'Z2' }, metadata: { origin: 'SYSTEM_DEFINED', configurable: false } },
   },
   lists: { L1: { id: 'L1', name: 'SSH', type: 'PORTS', items: [{ type: 'PORT_NUMBER', value: 22 }] } },
+  networks: { N1: { id: 'N1', name: 'Guest', enabled: true, vlanId: 30, management: 'GATEWAY', metadata: { origin: 'USER_DEFINED' } } },
+  client: { id: 'C1', name: 'laptop', macAddress: 'aa:bb', type: 'WIRELESS', uptimeSec: 1 },
+  ordering: { orderedFirewallPolicyIds: { beforeSystemDefined: ['P1'], afterSystemDefined: [] } },
 });
 
 function fakeApi(log, tls, state) {
@@ -57,20 +61,49 @@ function fakeApi(log, tls, state) {
     const list = (rows) => out(200, { count: rows.length, totalCount: rows.length, data: rows });
     if (req.headers['x-api-key'] !== 'k') return out(401, { error: 'no' });
     if (u.pathname === '/v1/hosts') return out(200, { data: [{ id: 'C1', type: 'console' }] });
+    if (u.pathname.startsWith('/proxy/network/api/') || u.pathname.startsWith('/proxy/network/v2/')) {
+      const priv = u.pathname.slice('/proxy/network'.length);
+      state.private.push({ method: req.method, path: priv + u.search, body });
+      if (priv === '/api/s/default/stat/health') return out(200, { meta: { rc: 'ok' }, data: [{ subsystem: 'wlan', status: 'ok' }] });
+      if (priv === '/api/s/default/stat/device') return out(200, { meta: { rc: 'ok' }, data: [{ name: 'AP1', x_authkey: 'device-secret', x_ssh_password: 'ssh-secret', model: 'U7PRO' }] });
+      if (['/api/s/default/list/user', '/api/s/default/stat/current-channel', '/api/s/default/stat/ccode', '/api/s/default/stat/dpi', '/api/s/default/stat/fwupdate/latest-version'].includes(priv)) return out(200, { meta: { rc: 'ok' }, data: [{ from: priv }] });
+      if (['/api/s/default/stat/session', '/api/s/default/stat/sitedpi'].includes(priv) && req.method === 'POST') return out(200, { meta: { rc: 'ok' }, data: [{ from: priv, x_secret: 's' }] });
+      if (priv === '/api/s/default/stat/event') return out(404, { meta: { rc: 'error', msg: 'api.err.NotFound' } });
+      if (priv === '/api/s/default/list/alarm') return out(200, { meta: { rc: 'error', msg: 'api.err.LoginRequired' } });
+      if (priv === '/v2/api/site/default/system-log/all' && req.method === 'POST') return out(200, { data: [{ key: 'CLIENT_CONNECTED', timestamp: 1 }], page_number: body.pageNumber, total_page_count: 1, total_element_count: 1 });
+      return out(404, { error: 'nf' });
+    }
     const rel = u.pathname.startsWith(LP) ? CP + u.pathname.slice(LP.length) : u.pathname;
     if (req.method !== 'GET') state.writes.push({ method: req.method, path: rel.slice(CP.length), body });
     if (rel === `${CP}/html`) { res.writeHead(200, { 'content-type': 'text/html' }); return res.end('<html>maintenance</html>'); }
     if (rel === `${CP}/info`) return out(200, { applicationVersion: '10' });
-    if (rel === `${CP}/sites`) return out(200, { count: 1, totalCount: 1, data: [{ id: 'S1', name: 'Default' }] });
+    if (rel === `${CP}/sites`) return out(200, { count: 1, totalCount: 1, data: [{ id: 'S1', name: 'Default', internalReference: 'default' }] });
     if (rel === `${CP}/sites/S1/devices/D1`) return out(200, state.device);
     if (rel === `${CP}/sites/S1/devices/D1/actions`) {
       if (!state.actionText) return out(200, {});
       res.writeHead(200, { 'content-type': 'text/plain' });
       return res.end(state.actionText);
     }
+    if (state.noZbf && /\/sites\/S1\/firewall\/(policies|zones)$/.test(rel)) return out(400, { code: 'api.firewall.zone-based-firewall-not-configured', message: 'Zone Based Firewall is not configured' });
     if (rel === `${CP}/sites/S1/firewall/zones`) return list([{ id: 'Z1', name: 'External' }, { id: 'Z2', name: 'Gateway' }]);
     if (rel === `${CP}/sites/S1/firewall/policies`) return list(Object.values(state.policies));
-    let m = rel.match(/\/sites\/S1\/firewall\/policies\/(\w+)$/);
+    if (rel === `${CP}/sites/S1/firewall/policies/ordering`) {
+      if (req.method === 'GET') return out(200, state.ordering);
+      state.ordering = body;
+      return out(200, body);
+    }
+    if (rel === `${CP}/sites/S1/networks` && req.method === 'POST') return out(201, (state.networks.N2 = { id: 'N2', ...body }));
+    if (rel === `${CP}/sites/S1/networks/N1/references`) return out(200, { referenceResources: [{ resourceType: 'WIFI_BROADCAST', referenceCount: 1 }] });
+    if (rel === `${CP}/sites/S1/clients/C1`) return out(200, state.client);
+    if (rel === `${CP}/sites/S1/clients/C1/actions`) return out(200, {});
+    let m = rel.match(/\/sites\/S1\/networks\/(\w+)$/);
+    if (m && state.networks[m[1]]) {
+      if (req.method === 'GET') return out(200, state.networks[m[1]]);
+      if (req.method === 'DELETE') { delete state.networks[m[1]]; return out(200, {}); }
+      state.networks[m[1]] = { ...body, id: m[1] };
+      return out(200, state.networks[m[1]]);
+    }
+    m = rel.match(/\/sites\/S1\/firewall\/policies\/(\w+)$/);
     if (m && state.policies[m[1]]) {
       const cur = state.policies[m[1]];
       if (req.method === 'GET') return out(200, cur);
@@ -231,7 +264,7 @@ const WRITE_ENV = () => {
   return { UNIFI_API_KEY: 'k', UNIFI_ENABLE_WRITES: 'true', CLAUDE_PLUGIN_DATA: dir };
 };
 const json = (r) => JSON.parse(text(r));
-const WRITE_NAMES = ['unifi_plan_restart_device', 'unifi_plan_set_firewall_policy', 'unifi_plan_update_traffic_list', 'unifi_apply_change'];
+const WRITE_NAMES = ['unifi_plan_restart_device', 'unifi_plan_set_firewall_policy', 'unifi_plan_update_traffic_list', 'unifi_plan_change', 'unifi_apply_change'];
 const logLines = (env) => fs.readFileSync(path.join(env.CLAUDE_PLUGIN_DATA, 'changes.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
 
 test('writes are off by default: no write tools, calls refused, no request', async () => {
@@ -461,3 +494,257 @@ test('a name that ends with a space can still be confirmed', () => withServer(WR
   assert.notEqual(r.isError, true, text(r));
   assert.equal(state.writes.length, 1);
 }));
+
+// ── unifi_plan_change: the rest of the API ──
+const GUEST = { name: 'Guest', enabled: true, vlanId: 31, management: 'GATEWAY' };
+
+test('plan_change: PUT shows what changes, apply sends the body and the digest binds it', () => withServer(WRITE_ENV(), async ({ call, state }) => {
+  const plan = json(await call('unifi_plan_change', { method: 'PUT', path: 'sites/S1/networks/N1', body: GUEST }));
+  assert.deepEqual(plan.changed, { vlanId: { from: 30, to: 31 } });
+  assert.deepEqual(plan.notInBody, []);
+  assert.match(plan.confirmation, /^PUT networks\/N1 "Guest" \{.*"vlanId":31.*\} \[[0-9a-f]{8}\]$/);
+  assert.deepEqual(state.writes, []);
+  const other = json(await call('unifi_plan_change', { method: 'PUT', path: 'sites/S1/networks/N1', body: { ...GUEST, vlanId: 32 } }));
+  assert.notEqual(other.confirmation.slice(-10), plan.confirmation.slice(-10));
+  assert.equal((await call('unifi_apply_change', { approvalCode: plan.approvalCode, confirmation: other.confirmation })).isError, true);
+  assert.deepEqual(state.writes, []);
+  const ok = await call('unifi_apply_change', { approvalCode: plan.approvalCode, confirmation: plan.confirmation });
+  assert.notEqual(ok.isError, true, text(ok));
+  assert.deepEqual(state.writes, [{ method: 'PUT', path: '/sites/S1/networks/N1', body: GUEST }]);
+}));
+
+test('plan_change: DELETE says what uses the network, and removes it only after apply', () => withServer(WRITE_ENV(), async ({ call, state }) => {
+  const plan = json(await call('unifi_plan_change', { method: 'DELETE', path: '/sites/S1/networks/N1?force=true' }));
+  assert.match(plan.summary, /^DELETE networks\/N1 "Guest"\. This cannot be undone\./);
+  assert.equal(plan.references.referenceResources[0].referenceCount, 1);
+  assert.deepEqual(state.writes, []);
+  await call('unifi_apply_change', { approvalCode: plan.approvalCode, confirmation: plan.confirmation });
+  assert.deepEqual(state.writes, [{ method: 'DELETE', path: '/sites/S1/networks/N1', body: undefined }]);
+  assert.equal(state.networks.N1, undefined);
+}));
+
+test('plan_change: create has nothing to read, and a stale plan is not possible for it', () => withServer(WRITE_ENV(), async ({ call, state }) => {
+  const plan = json(await call('unifi_plan_change', { method: 'POST', path: 'sites/S1/networks', body: { name: 'IoT', vlanId: 40 } }));
+  assert.match(plan.summary, /^Create in networks: /);
+  await call('unifi_apply_change', { approvalCode: plan.approvalCode, confirmation: plan.confirmation });
+  assert.deepEqual(state.writes, [{ method: 'POST', path: '/sites/S1/networks', body: { name: 'IoT', vlanId: 40 } }]);
+}));
+
+test('plan_change: a client counter that moves on its own does not make the plan stale', () => withServer(WRITE_ENV(), async ({ call, state }) => {
+  const plan = json(await call('unifi_plan_change', { method: 'POST', path: 'sites/S1/clients/C1/actions', body: { action: 'AUTHORIZE_GUEST_ACCESS' } }));
+  assert.match(plan.summary, /^Run an action on clients\/C1 "laptop"/);
+  state.client.uptimeSec = 999;
+  const ok = await call('unifi_apply_change', { approvalCode: plan.approvalCode, confirmation: plan.confirmation });
+  assert.notEqual(ok.isError, true, text(ok));
+  assert.equal(state.writes[0].path, '/sites/S1/clients/C1/actions');
+}));
+
+test('plan_change: a configuration that changes before apply makes the plan stale', () => withServer(WRITE_ENV(), async ({ call, state }) => {
+  const plan = json(await call('unifi_plan_change', { method: 'PUT', path: 'sites/S1/networks/N1', body: GUEST }));
+  state.networks.N1.enabled = false;
+  const r = await call('unifi_apply_change', { approvalCode: plan.approvalCode, confirmation: plan.confirmation });
+  assert.equal(r.isError, true);
+  assert.match(text(r), /changed since/);
+  assert.deepEqual(state.writes, []);
+}));
+
+test('plan_change: ordering takes its two zones as query and reads them first', () => withServer(WRITE_ENV(), async ({ call, state, log }) => {
+  const path = 'sites/S1/firewall/policies/ordering?sourceFirewallZoneId=Z1&destinationFirewallZoneId=Z2';
+  const body = { orderedFirewallPolicyIds: { beforeSystemDefined: ['P2', 'P1'], afterSystemDefined: [] } };
+  const plan = json(await call('unifi_plan_change', { method: 'PUT', path, body }));
+  assert.ok(Object.hasOwn(plan.changed, 'orderedFirewallPolicyIds'));
+  assert.ok(log.some(([m, p]) => m === 'GET' && p.endsWith('/firewall/policies/ordering')));
+  await call('unifi_apply_change', { approvalCode: plan.approvalCode, confirmation: plan.confirmation });
+  assert.deepEqual(state.writes[0].body, body);
+}));
+
+test('plan_change: operations that are not in the API, odd queries and bad bodies are refused before any request', () => withServer(WRITE_ENV(), async ({ call, state, log }) => {
+  const bad = [
+    { method: 'DELETE', path: 'sites/S1' }, { method: 'POST', path: 'sites' }, { method: 'PUT', path: 'sites/S1/devices/D1', body: { a: 1 } },
+    { method: 'GET', path: 'sites/S1/networks' }, { method: 'PUT', path: 'sites/S1/networks/ordering', body: { a: 1 } },
+    { method: 'PATCH', path: 'sites/S1/networks/N1', body: { a: 1 } }, { method: 'POST', path: 'sites/S1/networks/N1/references', body: { a: 1 } },
+    { method: 'DELETE', path: 'sites/S1/networks/N1', body: { a: 1 } }, { method: 'PUT', path: 'sites/S1/networks/N1' },
+    { method: 'PUT', path: 'sites/S1/networks/N1', body: [] }, { method: 'PUT', path: 'sites/S1/networks/N1', body: {} },
+    { method: 'DELETE', path: 'sites/S1/networks/N1?evil=1' }, { method: 'DELETE', path: 'sites/S1/hotspot/vouchers' },
+    { method: 'DELETE', path: 'https://evil.example/x' }, { method: 'DELETE', path: 'sites/S1/networks/..' },
+    { method: 'POST', path: 'sites/S1/../../v1/hosts', body: { a: 1 } }, { method: 'POST', path: 'sites/%2e%2e/networks', body: { a: 1 } },
+    { method: 'DELETE', path: 'sites/S1/networks/N1#x' },
+  ];
+  for (const args of bad) assert.equal((await call('unifi_plan_change', args)).isError, true, JSON.stringify(args));
+  assert.deepEqual(state.writes, []);
+  assert.equal(log.length, 0);
+}));
+
+test('plan_change: a PUT that changes nothing is refused', () => withServer(WRITE_ENV(), async ({ call, state }) => {
+  const r = await call('unifi_plan_change', { method: 'PUT', path: 'sites/S1/networks/N1', body: { name: 'Guest', vlanId: 30 } });
+  assert.equal(r.isError, true);
+  assert.match(text(r), /Nothing to change/);
+  assert.deepEqual(state.writes, []);
+}));
+
+test('plan_change is off with writes off', () => withServer({ UNIFI_API_KEY: 'k' }, async ({ call, log }) => {
+  const r = await call('unifi_plan_change', { method: 'DELETE', path: 'sites/S1/networks/N1' });
+  assert.equal(r.isError, true);
+  assert.match(text(r), /Writes are disabled/);
+  assert.equal(log.length, 0);
+}));
+
+test('traffic list: a console without zone-based firewall can still be edited, and the plan says who uses it is unknown', () => withServer(WRITE_ENV(), async ({ call, state }) => {
+  state.noZbf = true;
+  const items = [{ type: 'PORT_NUMBER', value: 22 }, { type: 'PORT_NUMBER', value: 2222 }];
+  const plan = json(await call('unifi_plan_update_traffic_list', { listId: 'L1', items }));
+  assert.equal(plan.usedBy, null);
+  assert.match(plan.usedByError, /zone-based-firewall-not-configured/);
+  assert.match(plan.summary, /Used by: unknown \(the firewall policies could not be read\)\./);
+  const ok = await call('unifi_apply_change', { approvalCode: plan.approvalCode, confirmation: plan.confirmation });
+  assert.notEqual(ok.isError, true, text(ok));
+  assert.equal(state.writes.length, 1);
+}));
+
+test('plan_change: a secret in the body (a WiFi passphrase) is never shown or logged, but is sent', () => {
+  const env = WRITE_ENV();
+  return withServer(env, async ({ call, state }) => {
+    const body = { management: 'GATEWAY', name: 'Guest', enabled: true, vlanId: 30, wifiPassphrase: 'hunter2', nested: { apiKey: 'k-secret' } };
+    const plan = json(await call('unifi_plan_change', { method: 'PUT', path: 'sites/S1/networks/N1', body }));
+    assert.ok(!JSON.stringify(plan).includes('hunter2') && !JSON.stringify(plan).includes('k-secret'), 'plan text');
+    assert.match(plan.confirmation, /"wifiPassphrase":"\*\*\*"/);
+    await call('unifi_apply_change', { approvalCode: plan.approvalCode, confirmation: plan.confirmation });
+    assert.equal(state.writes[0].body.wifiPassphrase, 'hunter2');
+    assert.equal(state.writes[0].body.nested.apiKey, 'k-secret');
+    assert.ok(!fs.readFileSync(path.join(env.CLAUDE_PLUGIN_DATA, 'changes.jsonl'), 'utf8').match(/hunter2|k-secret/), 'change log');
+  });
+});
+
+test('plan_change: the same request planned twice gets a different digest, so a secret cannot be guessed from the phrase', () => withServer(WRITE_ENV(), async ({ call }) => {
+  const body = { management: 'GATEWAY', name: 'Guest', enabled: true, vlanId: 30, wifiPassphrase: 'one' };
+  const a = json(await call('unifi_plan_change', { method: 'PUT', path: 'sites/S1/networks/N1', body }));
+  const b = json(await call('unifi_plan_change', { method: 'PUT', path: 'sites/S1/networks/N1', body }));
+  assert.notEqual(a.confirmation, b.confirmation);
+  assert.ok(!a.confirmation.includes('one'));
+}));
+
+// ── the controller's private API (local mode): statistics, alarms, the system log ──
+const privateTest = tls ? localTest : test.skip;
+const LOCAL = { local: tls };
+const priv = (state) => state.private;
+
+privateTest('private API tools are listed only in local mode', async () => {
+  await withServer({ UNIFI_API_KEY: 'k' }, async ({ rpc, call }) => {
+    const names = (await rpc('tools/list')).result.tools.map((t) => t.name);
+    assert.ok(!names.includes('unifi_legacy_get') && !names.includes('unifi_system_log') && !names.includes('unifi_stats_query'));
+    const r = await call('unifi_legacy_get', { path: 'stat/health' });
+    assert.equal(r.isError, true);
+    assert.match(text(r), /need local mode/);
+  });
+  await withServer({ UNIFI_API_KEY: 'k' }, async ({ rpc }) => {
+    const tools = (await rpc('tools/list')).result.tools;
+    for (const n of ['unifi_legacy_get', 'unifi_system_log', 'unifi_stats_query']) assert.equal(tools.find((t) => t.name === n).annotations.readOnlyHint, true, n);
+  }, LOCAL);
+});
+
+privateTest('legacy_get: an allowed path is read with the key, the site name comes from the site list', () => withServer({ UNIFI_API_KEY: 'k' }, async ({ call, state }) => {
+  assert.deepEqual(json(await call('unifi_legacy_get', { path: '/stat/health' })), [{ subsystem: 'wlan', status: 'ok' }]);
+  assert.deepEqual(priv(state), [{ method: 'GET', path: '/api/s/default/stat/health', body: undefined }]);
+  assert.deepEqual(json(await call('unifi_legacy_get', { path: 'stat/health', site: 'S1' })), [{ subsystem: 'wlan', status: 'ok' }]);
+  assert.equal((await call('unifi_legacy_get', { path: 'stat/health', site: 'nope' })).isError, true);
+}, LOCAL));
+
+privateTest('legacy_get: secrets of the private API (x_ keys) never reach the output', () => withServer({ UNIFI_API_KEY: 'k' }, async ({ call }) => {
+  const out = text(await call('unifi_legacy_get', { path: 'stat/device' }));
+  assert.ok(!/device-secret|ssh-secret/.test(out), out);
+  assert.equal(json(await call('unifi_legacy_get', { path: 'stat/device' }))[0].model, 'U7PRO');
+  assert.deepEqual(json(await call('unifi_legacy_get', { path: 'stat/device', fields: ['name'] })), [{ name: 'AP1' }]);
+}, LOCAL));
+
+privateTest('legacy_get: only the listed reads; settings, commands, traversal and queries in the path are refused without a request', () => withServer({ UNIFI_API_KEY: 'k' }, async ({ call, state }) => {
+  const before = priv(state).length;
+  for (const path of ['rest/wlanconf', 'rest/setting', 'cmd/stamgr', 'set/setting/x', 'stat/health?x=1', 'stat/../rest/user', 'stat/%2e%2e/rest/user',
+    'https://evil.example/x', 'stat/sta/zz', 'stat/sta/aaaaaaaaaaaaaaaaa', 'stat/report/hourly.evil', 'v2/system-log/all', 'v2/clients/active/extra', '', 'stat/health#x']) {
+    const r = await call('unifi_legacy_get', { path });
+    assert.equal(r.isError, true, path);
+  }
+  assert.equal(priv(state).length, before, 'no private request was made');
+  assert.equal(state.writes.length, 0);
+}, LOCAL));
+
+privateTest('legacy_get: query filters are passed, bad ones refused', () => withServer({ UNIFI_API_KEY: 'k' }, async ({ call, state }) => {
+  await call('unifi_legacy_get', { path: 'stat/health', query: { within: 24, _limit: 5 } });
+  assert.equal(priv(state).at(-1).path, '/api/s/default/stat/health?within=24&_limit=5');
+  for (const query of [{ 'a b': 1 }, { x: { y: 1 } }, { x: 'a\nb' }, { '../x': 1 }]) assert.equal((await call('unifi_legacy_get', { path: 'stat/health', query })).isError, true, JSON.stringify(query));
+}, LOCAL));
+
+privateTest('legacy_get: a refusal inside a 200 answer (meta.rc) and a 404 are clear errors', () => withServer({ UNIFI_API_KEY: 'k' }, async ({ call }) => {
+  const a = await call('unifi_legacy_get', { path: 'list/alarm' });
+  assert.equal(a.isError, true);
+  assert.match(text(a), /refused the request: api\.err\.LoginRequired/);
+  const e = await call('unifi_legacy_get', { path: 'stat/event' });
+  assert.equal(e.isError, true);
+  assert.match(text(e), /404/);
+}, LOCAL));
+
+privateTest('the site list is fetched once for several private reads, and a site it does not know asks the console again', () => withServer({ UNIFI_API_KEY: 'k' }, async ({ call, log }) => {
+  const listings = () => log.filter(([, p]) => p.endsWith('/integration/v1/sites')).length;
+  await call('unifi_legacy_get', { path: 'stat/health' });
+  await call('unifi_legacy_get', { path: 'stat/sysinfo', site: 'default' });
+  await call('unifi_legacy_get', { path: 'stat/health', site: 'S1' });
+  assert.equal(listings(), 1, 'one listing for three reads');
+  assert.equal((await call('unifi_legacy_get', { path: 'stat/health', site: 'nope' })).isError, true);
+  assert.equal((await call('unifi_legacy_get', { path: 'stat/health', site: 'nope' })).isError, true);
+  assert.equal(listings(), 3, 'a miss is never cached');
+}, LOCAL));
+
+privateTest('system_log: a fixed, bounded POST body to the log query, nothing else', () => withServer({ UNIFI_API_KEY: 'k' }, async ({ call, state }) => {
+  const r = json(await call('unifi_system_log', { hours: 2, pageSize: 50, page: 1, categories: ['AUDIT'] }));
+  assert.equal(r.data[0].key, 'CLIENT_CONNECTED');
+  const [sent] = priv(state);
+  assert.equal(sent.method, 'POST');
+  assert.equal(sent.path, '/v2/api/site/default/system-log/all');
+  assert.deepEqual(Object.keys(sent.body).sort(), ['categories', 'pageNumber', 'pageSize', 'timestampFrom', 'timestampTo']);
+  assert.equal(sent.body.pageSize, 50);
+  assert.equal(sent.body.pageNumber, 1);
+  assert.deepEqual(sent.body.categories, ['AUDIT']);
+  assert.equal(sent.body.timestampTo - sent.body.timestampFrom, 2 * 3600 * 1000);
+  assert.equal(state.writes.length, 0, 'it is not a change');
+}, LOCAL));
+
+privateTest('the extra GET reads are allowed: known clients, channels, country codes, DPI, newest firmware', () => withServer({ UNIFI_API_KEY: 'k' }, async ({ call, state }) => {
+  for (const path of ['list/user', 'stat/current-channel', 'stat/ccode', 'stat/dpi', 'stat/fwupdate/latest-version']) {
+    assert.equal(json(await call('unifi_legacy_get', { path }))[0].from, `/api/s/default/${path}`);
+  }
+  for (const path of ['list/user/x', 'rest/user', 'stat/dpi/x', 'stat/fwupdate/x', 'list/setting']) assert.equal((await call('unifi_legacy_get', { path })).isError, true, path);
+  assert.ok(priv(state).every((r) => r.method === 'GET'));
+}, LOCAL));
+
+privateTest('stats_query: each kind is a bounded POST to its one path, with a body built from checked values', () => withServer({ UNIFI_API_KEY: 'k' }, async ({ call, state }) => {
+  const sent = async (args) => { await call('unifi_stats_query', args); return priv(state).at(-1); };
+  const s1 = await sent({ kind: 'sessions', hours: 2, type: 'guest', mac: 'AA:BB:CC:DD:EE:FF' });
+  assert.equal(s1.method, 'POST');
+  assert.equal(s1.path, '/api/s/default/stat/session');
+  assert.deepEqual(Object.keys(s1.body).sort(), ['end', 'mac', 'start', 'type']);
+  assert.equal(s1.body.mac, 'aa:bb:cc:dd:ee:ff');
+  assert.equal(s1.body.end - s1.body.start, 2 * 3600);
+  const s3 = await sent({ kind: 'dpi', type: 'by_app', cats: [4, 18] });
+  assert.equal(s3.path, '/api/s/default/stat/sitedpi');
+  assert.deepEqual(s3.body, { type: 'by_app', cats: [4, 18] });
+  assert.deepEqual((await sent({ kind: 'dpi' })).body, { type: 'by_cat' });
+  const r = json(await call('unifi_stats_query', { kind: 'sessions' }));
+  assert.notEqual(r[0].x_secret, 's', 'secrets are masked');
+  assert.equal(state.writes.length, 0, 'not a change');
+}, LOCAL));
+
+privateTest('stats_query: unknown kinds, bad values and out-of-range numbers are refused without a request', () => withServer({ UNIFI_API_KEY: 'k' }, async ({ call, state }) => {
+  for (const args of [{}, { kind: 'x' }, { kind: '__proto__' }, { kind: 'sessions', type: 'all/../x' }, { kind: 'sessions', mac: 'zz' }, { kind: 'sessions', mac: 'aaaaaaaaaaaaaaaaa' }, { kind: 'sessions', mac: ':::::::::::::::::' }, { kind: 'sessions', hours: 0 },
+    { kind: 'sessions', hours: 24 * 91 }, { kind: 'ips_events' }, { kind: 'dpi', type: 'by_x' },
+    { kind: 'dpi', cats: [1] }, { kind: 'dpi', type: 'by_app', cats: ['a'] }, { kind: 'dpi', type: 'by_app', cats: Array(51).fill(1) }]) {
+    assert.equal((await call('unifi_stats_query', args)).isError, true, JSON.stringify(args));
+  }
+  assert.equal(priv(state).length, 0);
+}, LOCAL));
+
+privateTest('system_log: unknown classes, categories and out-of-range numbers are refused without a request', () => withServer({ UNIFI_API_KEY: 'k' }, async ({ call, state }) => {
+  for (const args of [{ class: 'all/../x' }, { class: '__proto__' }, { class: 'constructor' }, { hours: 0 }, { hours: 24 * 91 }, { hours: 1.5 }, { pageSize: 501 }, { pageSize: 0 },
+    { page: -1 }, { page: 'x' }, { categories: ['EVIL'] }, { categories: 'AUDIT' }]) {
+    assert.equal((await call('unifi_system_log', args)).isError, true, JSON.stringify(args));
+  }
+  assert.equal(priv(state).length, 0);
+}, LOCAL));
