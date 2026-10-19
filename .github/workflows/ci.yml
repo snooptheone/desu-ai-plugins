@@ -69,3 +69,7 @@ jobs:
 
       - name: Tests
         run: node --test plugins/unifi/tests/*.test.js
+
+      - name: Test-VM tooling (fake ssh, no VM)
+        if: matrix.node == '22' # shell scripts: the Node version changes nothing here
+        run: bash plugins/unifi/tests/e2e/selftest.sh

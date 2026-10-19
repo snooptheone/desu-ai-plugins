@@ -1,0 +1,49 @@
+#!/bin/bash
+# Virtual UniFi devices for trying things by hand in the VM's Network app, outside the test cycle. It never touches
+# the VM itself (no rollback, no start): the VM must already be running. Same containers and the same newest-firmware
+# rule as run.sh.
+#   virtual-devices up MODELS [VM-ADDRESS]   e.g.  virtual-devices up UXGPRO     or     virtual-devices up U7PRO,USM8P:2
+#   virtual-devices down                     removes them
+#   virtual-devices logs                     what they say to the controller
+# MODELS as in UNIFI_EMU_MODELS. VM-ADDRESS defaults to UNIFI_VM_HOST, then to the address found from Proxmox.
+# The image comes from UNIFI_EMU_IMAGE. UNIFI_EMU_FIRMWARE=default keeps the emulator's own (older) versions.
+set -u
+. "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+
+PREFIX=unifi-manual-emu
+cmd=${1:-}
+
+emu_names() { docker ps -a --format '{{.Names}}' | grep -E "^$PREFIX-[0-9]+$" || true; }
+
+case "$cmd" in
+  up)
+    load_config
+    models=${2:?usage: virtual-devices up MODELS [VM-ADDRESS]}
+    [[ $models =~ ^[A-Za-z0-9,:]+$ ]] || die "MODELS must look like U7PRO,USM8P:2"
+    : "${UNIFI_EMU_IMAGE:?UNIFI_EMU_IMAGE is not set in the settings file}"
+    [[ $UNIFI_EMU_IMAGE =~ ^[a-z0-9][a-z0-9./_-]*(:[A-Za-z0-9._-]+)?(@sha256:[0-9a-f]{64})?$ ]] || die "UNIFI_EMU_IMAGE is not an image reference"
+    host=${3:-${UNIFI_VM_HOST:-}}
+    host=${host%:*}
+    [ -n "$host" ] || host=$(discover_ip) || host=
+    [[ $host =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]] || die "give the VM address as the third argument (it could not be found)"
+    # a device already known to the controller is refused (HTTP 400) until it is forgotten in the app
+    trap 'rc=$?; [ "$rc" -eq 0 ] || emu_stop_fleet' EXIT   # a failure half-way leaves nothing behind
+    emu_start_fleet "$host" "$PREFIX" "$models"
+    trap - EXIT
+    [ -z "$EMU_FW_FILE" ] || rm -f "$EMU_FW_FILE"
+    log "up: ${EMU_NAMES[*]}. Adopt them in the app. If one shows HTTP 400 in the logs, forget its old record there first."
+    ;;
+  down)
+    names=$(emu_names)
+    [ -n "$names" ] || { log "no virtual devices running"; exit 0; }
+    # shellcheck disable=SC2086
+    docker rm -f $names >/dev/null && log "removed: $(tr '\n' ' ' <<<"$names")"
+    ;;
+  logs)
+    for n in $(emu_names); do echo "== $n"; docker logs --tail 15 "$n" 2>&1 | cut -c1-200; done
+    ;;
+  *)
+    sed -n '2,10p' "${BASH_SOURCE[0]}" >&2
+    exit 2
+    ;;
+esac

@@ -1,0 +1,207 @@
+diff --git a/device.go b/device.go
+index 1b126a8..b62ec23 100644
+--- a/device.go
++++ b/device.go
+@@ -6,6 +6,7 @@ import (
+ 	"fmt"
+ 	"log"
+ 	"net"
++	"os"
+ 	"sync"
+ 	"time"
+ 
+@@ -170,9 +171,16 @@ func newDevice(spec DeviceSpec, informURL string) (*device, error) {
+ 	if spec.Name == "" {
+ 		spec.Name = "UBNT"
+ 	}
++	session := inform.NewSession(buildDescriptor(spec, profile), informURL, time.Now())
++	// A device the controller already knows (restored from a snapshot, say) informs on the site's authkey from the
++	// start: on the default key it is refused with HTTP 400 until the old record is forgotten. One key for the process,
++	// so this is meant for a container with a single device.
++	if k := os.Getenv("UNIFI_EMU_AUTHKEY"); k != "" {
++		session.SetAuthKey(k)
++	}
+ 	return &device{
+ 		spec:     spec,
+-		session:  inform.NewSession(buildDescriptor(spec, profile), informURL, time.Now()),
++		session:  session,
+ 		state:    StatePending,
+ 		interval: 10 * time.Second,
+ 	}, nil
+diff --git a/inform/session.go b/inform/session.go
+index 6498be5..0fddb37 100644
+--- a/inform/session.go
++++ b/inform/session.go
+@@ -30,6 +30,10 @@ type Session struct {
+ 	// state into the device config and expects to read it back in the
+ 	// next inform's outlet_table.
+ 	outletRelay map[int]bool
++	// a pending wg-genkeypair answer (see wg_wireguard.go)
++	wgNotif     map[string]any
++	wgRequestID string
++	wgSent      bool
+ }
+ 
+ // NewSession starts a device on the default adoption key, pending, informing at
+@@ -46,6 +50,14 @@ func NewSession(desc Descriptor, informURL string, now time.Time) *Session {
+ 	return s
+ }
+ 
++// SetAuthKey starts the session on a key the controller already gave this device (a restored snapshot, say) instead of
++// the default one. A key that is not 32 hex digits is ignored.
++func (s *Session) SetAuthKey(k string) {
++	if _, err := ParseKey(k); err == nil {
++		s.key = k
++	}
++}
++
+ func (s *Session) AuthKey() string   { return s.key }
+ func (s *Session) InformURL() string { return s.informURL }
+ func (s *Session) Adopted() bool     { return s.adopted }
+@@ -202,6 +214,7 @@ func (s *Session) BuildPayload(now time.Time) []byte {
+ 	for k, v := range s.setstate {
+ 		m[k] = v
+ 	}
++	s.wgAttach(m)
+ 	b, err := json.Marshal(m)
+ 	if err != nil {
+ 		return nil // unreachable: only JSON-safe values above
+@@ -219,6 +232,7 @@ type informResponse struct {
+ 	Interval  int    `json:"interval"`
+ 	MgmtCfg   string `json:"mgmt_cfg"`
+ 	SystemCfg string `json:"system_cfg"` // device config file, one key=value per line
++	RequestID string `json:"request_id"`
+ 	// Command arguments. Port is the target of power-cycle and
+ 	// rps-port-recovery; SourceInterface is the speed-test source, which
+ 	// the controller sends in the literal "if!<ifname>" form.
+@@ -272,6 +286,9 @@ type Effect struct {
+ // authkeys are ignored (the classic stuck-adopt-loop bug). A set-adopt command
+ // is authoritative and rotates unconditionally.
+ func (s *Session) Apply(now time.Time, body []byte) []Effect {
++	if s.wgSent { // a reply came back, so the controller has the answer
++		s.wgNotif, s.wgSent = nil, false
++	}
+ 	var r informResponse
+ 	if err := json.Unmarshal(body, &r); err != nil {
+ 		return []Effect{{Kind: EffectDecodeError, Text: err.Error()}}
+@@ -343,6 +360,8 @@ func (s *Session) applyCmd(now time.Time, r informResponse) []Effect {
+ 		return []Effect{{Kind: EffectRPSPortRecovery, Text: strconv.Itoa(r.Port)}}
+ 	case "speed-test":
+ 		return []Effect{{Kind: EffectSpeedTest, Text: r.SourceInterface}}
++	case "wg-genkeypair":
++		return s.wgHandle(r.RequestID)
+ 	default:
+ 		return []Effect{{Kind: EffectUnknownCmd, Text: r.Cmd}}
+ 	}
+diff --git a/inform/wg_wireguard.go b/inform/wg_wireguard.go
+new file mode 100644
+index 0000000..32b57e9
+--- /dev/null
++++ b/inform/wg_wireguard.go
+@@ -0,0 +1,54 @@
++package inform
++
++import (
++	"crypto/ecdh"
++	"crypto/rand"
++	"encoding/base64"
++	"fmt"
++	"os"
++)
++
++// A gateway adopted by a controller that supports WireGuard is asked for a key pair with
++// {"_type":"cmd","cmd":"wg-genkeypair","request_id":...}. Until the answer arrives on the device's next inform
++// (inform_as_notif=true, notif_reason="cmd", notif_payload={event_string, request_id, params:{private_key,public_key}})
++// the controller keeps asking, never finishes provisioning the gateway, and does not offer the zone-based firewall.
++// Keys are random per request and live in memory only.
++
++func (s *Session) wgHandle(requestID string) []Effect {
++	if requestID == "" || (s.wgNotif != nil && s.wgRequestID == requestID) {
++		return nil
++	}
++	priv := make([]byte, 32)
++	if _, err := rand.Read(priv); err != nil {
++		return nil
++	}
++	priv[0] &= 248
++	priv[31] &= 127
++	priv[31] |= 64
++	key, err := ecdh.X25519().NewPrivateKey(priv)
++	if err != nil {
++		return nil
++	}
++	s.wgRequestID = requestID
++	s.wgSent = false
++	s.wgNotif = map[string]any{
++		"event_string": "wg-genkeypair",
++		"request_id":   requestID,
++		"params": map[string]any{
++			"private_key": base64.StdEncoding.EncodeToString(key.Bytes()),
++			"public_key":  base64.StdEncoding.EncodeToString(key.PublicKey().Bytes()),
++		},
++	}
++	fmt.Fprintln(os.Stderr, "wg-genkeypair: answering on the next inform")
++	return nil
++}
++
++func (s *Session) wgAttach(m map[string]any) {
++	if s.wgNotif == nil {
++		return
++	}
++	m["inform_as_notif"] = true
++	m["notif_reason"] = "cmd"
++	m["notif_payload"] = s.wgNotif
++	s.wgSent = true
++}
+diff --git a/inform/wg_wireguard_test.go b/inform/wg_wireguard_test.go
+new file mode 100644
+index 0000000..0229f2f
+--- /dev/null
++++ b/inform/wg_wireguard_test.go
+@@ -0,0 +1,46 @@
++package inform
++
++import (
++	"encoding/base64"
++	"testing"
++	"time"
++)
++
++func TestWgGenkeypairIsAnsweredOnceThenCleared(t *testing.T) {
++	s := &Session{}
++	s.wgHandle("req-1")
++	m := map[string]any{}
++	s.wgAttach(m)
++	if m["inform_as_notif"] != true || m["notif_reason"] != "cmd" {
++		t.Fatalf("reply not attached: %v", m)
++	}
++	n := m["notif_payload"].(map[string]any)
++	if n["event_string"] != "wg-genkeypair" || n["request_id"] != "req-1" {
++		t.Fatalf("bad payload: %v", n)
++	}
++	for _, k := range []string{"private_key", "public_key"} {
++		raw, err := base64.StdEncoding.DecodeString(n["params"].(map[string]any)[k].(string))
++		if err != nil || len(raw) != 32 {
++			t.Fatalf("%s is not 32 base64 bytes", k)
++		}
++	}
++	s.Apply(time.Now(), []byte(`{"_type":"noop","interval":10}`))
++	m2 := map[string]any{}
++	s.wgAttach(m2)
++	if len(m2) != 0 {
++		t.Fatalf("answer sent again after the controller replied: %v", m2)
++	}
++}
++
++func TestSetAuthKey(t *testing.T) {
++	const k = "0123456789abcdef0123456789abcdef"
++	s := NewSession(Descriptor{MAC: "00:27:22:e0:00:01"}, "http://x/inform", time.Now())
++	s.SetAuthKey("not-hex")
++	if s.AuthKey() != DefaultKey {
++		t.Fatalf("a bad key must be ignored, got %q", s.AuthKey())
++	}
++	s.SetAuthKey(k)
++	if s.AuthKey() != k {
++		t.Fatalf("key %q, want %q", s.AuthKey(), k)
++	}
++}

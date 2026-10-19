@@ -1,0 +1,63 @@
+#!/bin/bash
+# Prints what a controller stores about its gateways' capabilities, to compare a real gateway with a virtual one.
+# Read only: one GET of the private API (stat/device). The API key is typed (hidden) or comes from the settings file; it
+# reaches curl on stdin, never on a command line. Only capability-like fields are printed: no addresses, names, serials
+# or secrets (keys starting x_ are dropped), plus the NAMES of every other field so nothing unknown is hidden.
+#   gateway-caps HOST[:PORT]          e.g.  gateway-caps 192.168.0.1      (asks for the key)
+#   gateway-caps --vm HOST[:PORT]     the test VM, key from the settings file   e.g.  gateway-caps --vm 192.0.2.10:11443
+# GATEWAY_CAPS_SITE sets the site name (default: default).
+# GATEWAY_CAPS_EXTRA=a,b,c also prints the VALUES of those fields (plain names; anything that looks like a key, token,
+# password, certificate, address, MAC, serial or name is refused).
+set -u
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$DIR/lib.sh"
+
+use_vm=
+if [ "${1:-}" = --vm ]; then use_vm=1; shift; fi
+host=${1:-}
+[[ $host =~ ^[A-Za-z0-9][A-Za-z0-9.:-]*$ ]] || { sed -n '2,10p' "${BASH_SOURCE[0]}" >&2; exit 2; }
+site=${GATEWAY_CAPS_SITE:-default}
+[[ $site =~ ^[A-Za-z0-9_-]{1,40}$ ]] || die "bad site name"
+extra=${GATEWAY_CAPS_EXTRA:-}
+if [ -n "$extra" ]; then
+  for f in ${extra//,/ }; do
+    [[ $f =~ ^[a-z0-9_-]{1,60}$ ]] || die "bad field name: $f"
+    [[ $f =~ ^x_|key|token|pass|secret|cert|private|serial|mac|ip|name|host|uuid|guid|hash|id$ ]] && die "refusing to print $f (looks sensitive)"
+  done
+fi
+
+if [ -n "$use_vm" ]; then
+  load_config
+  key=${UNIFI_TEST_API_KEY:-}
+  [ -n "$key" ] || die "UNIFI_TEST_API_KEY is not set in the settings file"
+else
+  key=${UNIFI_API_KEY:-}
+  if [ -z "$key" ]; then
+    [ -t 0 ] || die "run it in a terminal: the key is typed, not passed as an argument"
+    printf 'API key for %s (typing is hidden): ' "$host" >&2
+    IFS= read -rs key
+    echo >&2
+  fi
+fi
+[ -n "$key" ] || die "no API key"
+
+out=$(printf 'header = "X-API-KEY: %s"\n' "$key" | curl -sk -m 30 -K - -w '\n%{http_code}' "https://$host/proxy/network/api/s/$site/stat/device") || die "cannot reach $host"
+unset key
+code=${out##*$'\n'}
+body=${out%$'\n'*}
+[ "$code" = 200 ] || die "HTTP $code from $host (401/403: this key is not accepted by the private API; 404: wrong site name, try GATEWAY_CAPS_SITE)"
+
+jq --arg extra "$extra" '
+  def hide: with_entries(select(.key | startswith("x_") | not));
+  [.data[]
+    | select(((.type // "") | test("^(ugw|uxg|udm)$")) or ((.model // "") | test("^(UDM|UCG|UXG|UDR|UGW|UDW)")))
+    | hide
+    | {
+        model, type, version, adopted, state, unsupported, unsupported_reason, upgradable,
+        extra_values: (. as $d | ($extra | split(",") | map(select(length > 0))) | map({key: ., value: $d[.]}) | from_entries),
+        capability_fields: (to_entries | map(select(.key | test("caps|capab|udapi|feature|support|board|hw_|_version$"; "i"))) | from_entries),
+        other_field_names: (keys - (to_entries | map(select(.key | test("caps|capab|udapi|feature|support|board|hw_|_version$"; "i")) | .key)))
+      }
+  ]
+  | if length == 0 then "no gateway in the answer" else . end
+' <<<"$body"
