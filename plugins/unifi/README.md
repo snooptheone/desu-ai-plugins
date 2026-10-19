@@ -61,7 +61,10 @@ The tests start the server against a local fake API; they need no network and no
 
 ### Against a real console (a UniFi OS test VM on Proxmox)
 
-`tests/e2e/` runs tests against a UniFi OS VM that lives on a Proxmox host, and leaves the VM as it found it:
+`tests/e2e/` runs tests against a UniFi OS VM that lives on a Proxmox host, and leaves the VM as it found it. The VM it was
+developed against is a [UniFi OS Server VM from the Proxmox community scripts](https://community-scripts.org/scripts/unifi-os-server-vm)
+(Network 10.6.106, port 11443). Create the VM, finish the first-run setup, create an API key in the Network app, then take the
+snapshot (the key must be inside it):
 
 ```bash
 bash plugins/unifi/tests/e2e/init-secrets.sh     # once: creates the settings file, mode 600, outside the repo
