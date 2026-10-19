@@ -1,0 +1,43 @@
+#!/bin/bash
+# Controls the UniFi OS test VM on Proxmox over ssh. It only ever touches the VM in PVE_VMID.
+#   pve-vm status    prints running or stopped
+#   pve-vm check     verifies the VM and its snapshot, changes nothing
+#   pve-vm restore   rolls the VM back to the snapshot (default "Inicial")
+#   pve-vm start     starts the VM if it is not running, and waits for it
+#   pve-vm stop      shuts the VM down (forced after PVE_SHUTDOWN_TIMEOUT) and verifies it is stopped
+set -u
+. "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+load_config
+
+case "${1:-}" in
+  status) vm_status || exit 1 ;;
+  check)
+    vm_check
+    log "VM $PVE_VMID on $PVE_HOST has snapshot '$PVE_SNAPSHOT'"
+    ;;
+  restore)
+    vm_check
+    log "rolling VM $PVE_VMID back to '$PVE_SNAPSHOT'"
+    pve qm rollback "$PVE_VMID" "$PVE_SNAPSHOT" >/dev/null || die "rollback of VM $PVE_VMID to '$PVE_SNAPSHOT' failed (on ZFS, Proxmox rolls back only to the NEWEST snapshot)"
+    ;;
+  start)
+    st=$(vm_status) || die "cannot read the status of VM $PVE_VMID"
+    if [ "$st" != running ]; then
+      log "starting VM $PVE_VMID"
+      pve qm start "$PVE_VMID" >/dev/null || die "cannot start VM $PVE_VMID"
+      wait_status running 60 || die "VM $PVE_VMID did not reach running"
+    fi
+    ;;
+  stop)
+    st=$(vm_status) || die "cannot read the status of VM $PVE_VMID"
+    if [ "$st" != stopped ]; then
+      log "shutting VM $PVE_VMID down"
+      pve qm shutdown "$PVE_VMID" --timeout "$PVE_SHUTDOWN_TIMEOUT" --forceStop 1 >/dev/null || true
+      wait_status stopped $((PVE_SHUTDOWN_TIMEOUT + PVE_STOP_GRACE)) || die "VM $PVE_VMID is still running after the shutdown"
+    fi
+    ;;
+  *)
+    sed -n '2,7p' "${BASH_SOURCE[0]}" >&2
+    exit 2
+    ;;
+esac

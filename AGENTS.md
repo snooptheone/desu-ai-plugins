@@ -8,11 +8,15 @@ A marketplace repo for Claude Code plugins. Currently ships two plugins:
 - `plugins/shunt-agy/` — the plugin itself: hooks, scripts, skills, and
   evals. See `plugins/shunt-agy/README.md` for what it does.
 - `plugins/unifi/` — UniFi Network MCP server (`mcp/server.js`, one Node.js file, no
-  dependencies) plus a skill. Read tools are GET-only. Write tools exist only when
+  dependencies) plus a skill. Read tools are GET-only, except `unifi_system_log` and `unifi_stats_query` (POSTs that only query,
+  each with a fixed body shape built from checked values). The private-API reads (`unifi_legacy_get`) are an allowlist (`LEGACY_GET`), local mode only,
+  masked; do not add settings, commands or `rest/*` there, they carry secrets and writes. Write tools exist only when
   `UNIFI_ENABLE_WRITES=true` and always go plan -> `unifi_apply_change` (one-use code, exact
   confirmation phrase, resource unchanged, change logged first), and `unifi_apply_change` stays flagged
   `_meta["anthropic/requiresUserInteraction"]` so Claude Code always prompts the person. Do not weaken that flow, and
-  do not add a write that skips it. Tests: `node --test plugins/unifi/tests/*.test.js`; CI runs them on Linux (Node 18 and 22) and must pass
+  do not add a write that skips it. `unifi_plan_change` is the generic planner: it accepts only the
+  method + path pairs in `CHANGE_ROUTES` (taken from the API spec); a new write operation goes there,
+  never around `unifi_apply_change`. Tests: `node --test plugins/unifi/tests/*.test.js`; CI runs them on Linux (Node 18 and 22) and must pass
   before a PR is merged. macOS and Windows are not tested yet.
 - `.claude-plugin/marketplace.json` — exposes this repo as a Claude Code
   marketplace (`claude plugin marketplace add snooptheone/desu-ai-plugins`).
@@ -76,6 +80,21 @@ input requiring stream-json output). Run it before touching anything under `hook
 `scripts/`.
 
 CI (`.github/workflows/ci.yml`) runs `evals/run.sh` on every PR; it needs no `agy` auth.
+
+### unifi end-to-end harness (`plugins/unifi/tests/e2e/`)
+
+`run.sh` restores a Proxmox snapshot of a UniFi OS test VM, runs the `*.e2e.js` files against it, restores again and
+powers the VM off; the settings (VM id, API key, root password, snapshot names) live in
+`~/.config/desu-ai-plugins/unifi-vm.env`, mode 600, outside the repo.
+
+- An agent runs only `bash plugins/unifi/tests/e2e/selftest.sh` (fake `ssh`, `curl` and `docker`, no VM; CI runs it too).
+  `run.sh`, `zbf-authkey`, `virtual-devices` and `gateway-caps` use the user's real credentials and VM: hand the user the
+  exact command and ask for the exit code and the last lines.
+- Never read or print the settings file. Keys are typed hidden, or go to curl on stdin; they never appear in argv.
+- Proxmox on ZFS rolls back only to the newest snapshot, so with `UNIFI_ZBF_SNAPSHOT` set every run restores that one.
+- After changing anything in `tests/e2e/`, run the selftest; a change to a `*.e2e.js` file is also checked there for
+  undeclared names (`dry-preload.js`).
+
 
 `run.sh` also validates every hook's stdout against the PreToolUse schema Claude Code
 accepts, so a format drift fails the suite even if allow/block still matches. That check

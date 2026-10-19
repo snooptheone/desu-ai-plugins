@@ -1,0 +1,25 @@
+#!/bin/bash
+# Stores the test site's inform authkey in the settings file as UNIFI_EMU_ZBF_AUTHKEY, for run.sh's zone-based firewall pass.
+# The key is the one the controller gave the virtual gateway you adopted before taking the ZBF snapshot: this reads it from
+# that container's log (the "authkey=" part of the mgmt_cfg line). It is never printed. It only works for that site, on
+# the test VM.
+# It also stores UNIFI_ZBF_SNAPSHOT (default ZBF), the Proxmox snapshot taken after the firewall upgrade.
+#   zbf-authkey CONTAINER [SNAPSHOT]      e.g.  zbf-authkey unifi-manual-emu-1
+set -eu
+. "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+name=${1:-}
+snap=${2:-ZBF}
+[[ $snap =~ ^[A-Za-z][A-Za-z0-9_-]*$ ]] || die "bad snapshot name"
+[[ $name =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || { sed -n '2,9p' "${BASH_SOURCE[0]}" >&2; exit 2; }
+conf=${UNIFI_VM_CONFIG:-$HOME/.config/desu-ai-plugins/unifi-vm.env}
+[ -f "$conf" ] || die "no settings file at $conf (run init-secrets.sh)"
+keys=$(docker logs "$name" 2>&1 | grep -o 'authkey=[0-9a-f]\{32\}' | sort -u | cut -d= -f2) || true
+[ "$(wc -l <<<"$keys")" -eq 1 ] && [ -n "$keys" ] || die "expected exactly one authkey in the log of $name"
+tmp=$(mktemp "$conf.XXXXXX")
+trap 'rm -f "$tmp"' EXIT
+grep -vE '^UNIFI_(EMU_ZBF_AUTHKEY|ZBF_SNAPSHOT)=' "$conf" >"$tmp" || true
+printf 'UNIFI_EMU_ZBF_AUTHKEY=%s\nUNIFI_ZBF_SNAPSHOT=%s\n' "$keys" "$snap" >>"$tmp"
+chmod 600 "$tmp"
+mv "$tmp" "$conf"
+trap - EXIT
+log "UNIFI_EMU_ZBF_AUTHKEY and UNIFI_ZBF_SNAPSHOT=$snap stored in $conf"

@@ -1,0 +1,19 @@
+#!/bin/bash
+# Builds the unifi-emu image the e2e tests use: upstream (cgoudie's PR #15 branch, which adds gateway models) at a fixed
+# revision plus emu/gateway.patch, which makes a virtual gateway answer the controller's wg-genkeypair command, and lets a restored device start on a given authkey (UNIFI_EMU_AUTHKEY).
+# Without that answer a controller never finishes provisioning the gateway and never offers the zone-based firewall.
+#   build-emu-image     builds and tags unifi-emu:wg-<short rev>; put that tag in UNIFI_EMU_IMAGE (settings file)
+# Needs git, docker and network access. The patch is new code; the rest is unifi-emu (MIT).
+set -eu
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO=https://github.com/cgoudie/unifi-emu.git
+REV=abe623d84b4ba82123c682231973d4df434dd45d
+TAG=unifi-emu:wg-${REV:0:7}-$(sha256sum "$DIR/emu/gateway.patch" | cut -c1-7)   # the patch is part of the tag
+
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+git clone -q "$REPO" "$work/src"
+git -C "$work/src" checkout -q "$REV"
+git -C "$work/src" apply "$DIR/emu/gateway.patch"
+docker build -q -t "$TAG" "$work/src" >/dev/null
+echo "built $TAG   (set UNIFI_EMU_IMAGE=$TAG)"
