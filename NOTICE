@@ -39,6 +39,12 @@ Changes made in this derivative work:
     copied verbatim from the original repository (same license) to keep
     the token-savings measurements comparable.
 
+The `plugins/pr-flow` skills are adapted from Theo Browne's "tstack",
+https://github.com/t3dotgg/tstack, MIT License, Copyright (c) 2026 Theo Browne (full text: plugins/pr-flow/LICENSE-tstack).
+Changes: `takeover` no longer depends on tstack's `file-pr` and `babysit-pr`,
+`modernize` no longer authorizes pushing, and `leaving-pr-comments` states that
+it never authorizes posting.
+
 This project is not affiliated with, endorsed by, or sponsored by Spotify
 AB or Google LLC. "Spotify" and "Antigravity" are trademarks of their
 respective owners.

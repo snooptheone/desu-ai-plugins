@@ -1,0 +1,9 @@
+{
+  "name": "pr-flow",
+  "description": "PR workflow skills: modernize an aging PR (rebase and decide if it should still exist), take over someone else's PR keeping their credit, and mark agent-written PR comments.",
+  "version": "0.1.0",
+  "author": {
+    "name": "snooptheone"
+  },
+  "repository": "https://github.com/snooptheone/desu-ai-plugins"
+}

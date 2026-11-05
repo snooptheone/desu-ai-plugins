@@ -1,7 +1,7 @@
 # desu-ai-plugins
 
-A marketplace repo for Claude Code plugins. Currently ships two plugins:
-`shunt-agy` and `unifi`.
+A marketplace repo for Claude Code plugins. Currently ships three plugins:
+`shunt-agy`, `unifi` and `pr-flow`.
 
 ## Repository structure
 
@@ -18,6 +18,7 @@ A marketplace repo for Claude Code plugins. Currently ships two plugins:
   method + path pairs in `CHANGE_ROUTES` (taken from the API spec); a new write operation goes there,
   never around `unifi_apply_change`. Tests: `node --test plugins/unifi/tests/*.test.js`; CI runs them on Linux (Node 18 and 22) and must pass
   before a PR is merged. macOS and Windows are not tested yet.
+- `plugins/pr-flow/` — three skills only (`modernize`, `takeover`, `leaving-pr-comments`), adapted from t3dotgg/tstack (MIT, see `NOTICE`); no code.
 - `.claude-plugin/marketplace.json` — exposes this repo as a Claude Code
   marketplace (`claude plugin marketplace add snooptheone/desu-ai-plugins`).
 - `NOTICE` — third-party attribution. Read this before touching anything
