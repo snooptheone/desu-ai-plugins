@@ -39,11 +39,23 @@ Changes made in this derivative work:
     copied verbatim from the original repository (same license) to keep
     the token-savings measurements comparable.
 
-The `plugins/pr-flow` skills are adapted from Theo Browne's "tstack",
-https://github.com/t3dotgg/tstack, MIT License, Copyright (c) 2026 Theo Browne (full text: plugins/pr-flow/LICENSE-tstack).
+The `modernize`, `takeover` and `leaving-pr-comments` skills in `plugins/desustack` are adapted from Theo Browne's "tstack",
+https://github.com/t3dotgg/tstack, MIT License, Copyright (c) 2026 Theo Browne (full text: plugins/desustack/LICENSE-tstack).
 Changes: `takeover` no longer depends on tstack's `file-pr` and `babysit-pr`,
 `modernize` no longer authorizes pushing, and `leaving-pr-comments` states that
 it never authorizes posting.
+
+The `unslop`, `typescript-best-practices`, `blast-radius`, `correct`, `create-verification-skill`,
+`figure-it-out`, `in-your-own-words`, `show-me-your-work` and `principle-*` skills in `plugins/desustack`
+are adapted from Lauren Tan's "pstack", https://github.com/cursor/plugins/tree/main/pstack,
+MIT License, Copyright (c) 2026 Lauren Tan (full text: plugins/desustack/LICENSE-pstack).
+Changes: Cursor-specific paths and tools were replaced with Claude Code equivalents
+(`.claude/skills`, the Agent tool with `isolation: "worktree"`, the session `transcript_path`),
+`disable-model-invocation` was removed from some skills, and the descriptions of `unslop` and
+`principle-fix-root-causes` were reworded. In `figure-it-out` and `principle-prove-it-works`, bold
+names of skills that only a user can run became relative links, and `pr-flow:` became `desustack:`
+in the skills adapted from tstack. The `principles` skill, the hooks and the `Explore` agent
+in `plugins/desustack` are original to this repository.
 
 This project is not affiliated with, endorsed by, or sponsored by Spotify
 AB or Google LLC. "Spotify" and "Antigravity" are trademarks of their

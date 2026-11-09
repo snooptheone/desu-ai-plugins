@@ -133,7 +133,7 @@ input/output pairing).
 ## Benchmarks
 
 ```bash
-cd evals && ./benchmark.sh
+bash evals/benchmark.sh
 ```
 
 Runs the scenarios in `benchmarks.json` (fixtures ported from Spotify's `shunt` evals)

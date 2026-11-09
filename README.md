@@ -30,11 +30,13 @@ Your UniFi network in Claude — clients, devices and their stats, networks/VLAN
 firewall policies, DNS and VPN — through the official UniFi Network API. Reading is the default; a few
 changes are available behind an option that is off by default and need your explicit approval each time. See [`plugins/unifi/README.md`](plugins/unifi/README.md).
 
-### [pr-flow](plugins/pr-flow)
+### [desustack](plugins/desustack)
 
-Three PR skills: `modernize` (rebase an old PR and decide whether it should still exist), `takeover`
-(finish someone else's PR or branch and keep their credit) and `leaving-pr-comments` (marks comments an agent
-posts on your behalf). Adapted from [t3dotgg/tstack](https://github.com/t3dotgg/tstack) (MIT).
+Engineering skills, guardrail hooks and a read-only `Explore` agent. The skills cover PR work (`modernize`,
+`takeover`, `leaving-pr-comments`), the principle skills, `unslop`, `blast-radius` and more; the hooks stop
+self-inflicted session failures such as `cd` drift, `pkill -f` self-kills and `find /`. Adapted from
+[t3dotgg/tstack](https://github.com/t3dotgg/tstack) and [pstack](https://github.com/cursor/plugins/tree/main/pstack) (both MIT).
+See [`plugins/desustack/README.md`](plugins/desustack/README.md).
 
 ## Installation
 
@@ -42,7 +44,7 @@ posts on your behalf). Adapted from [t3dotgg/tstack](https://github.com/t3dotgg/
 claude plugin marketplace add snooptheone/desu-ai-plugins
 claude plugin install shunt-agy@desu-ai-plugins
 claude plugin install unifi@desu-ai-plugins
-claude plugin install pr-flow@desu-ai-plugins
+claude plugin install desustack@desu-ai-plugins
 ```
 
 See [`plugins/shunt-agy/README.md`](plugins/shunt-agy/README.md) for

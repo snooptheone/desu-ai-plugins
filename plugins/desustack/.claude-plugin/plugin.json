@@ -1,0 +1,9 @@
+{
+  "name": "desustack",
+  "description": "Engineering skills, guardrail hooks and a read-only Explore agent: PR workflow (modernize, takeover, leaving-pr-comments), principle skills, unslop, blast-radius and more, plus Bash guards that block self-inflicted session failures.",
+  "version": "0.1.0",
+  "author": {
+    "name": "snooptheone"
+  },
+  "repository": "https://github.com/snooptheone/desu-ai-plugins"
+}
