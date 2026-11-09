@@ -52,7 +52,9 @@ MIT License, Copyright (c) 2026 Lauren Tan (full text: plugins/desustack/LICENSE
 Changes: Cursor-specific paths and tools were replaced with Claude Code equivalents
 (`.claude/skills`, the Agent tool with `isolation: "worktree"`, the session `transcript_path`),
 `disable-model-invocation` was removed from some skills, and the descriptions of `unslop` and
-`principle-fix-root-causes` were reworded. The `principles` skill, the hooks and the `Explore` agent
+`principle-fix-root-causes` were reworded. In `figure-it-out` and `principle-prove-it-works`, bold
+names of skills that only a user can run became relative links, and `pr-flow:` became `desustack:`
+in the skills adapted from tstack. The `principles` skill, the hooks and the `Explore` agent
 in `plugins/desustack` are original to this repository.
 
 This project is not affiliated with, endorsed by, or sponsored by Spotify

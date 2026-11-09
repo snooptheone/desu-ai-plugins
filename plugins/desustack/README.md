@@ -26,7 +26,7 @@ None of them pushes, posts or merges on its own. Each outward step needs your re
 | `in-your-own-words` | Restate the user's goals and problem before acting. |
 | `show-me-your-work` | Keep a reviewable decision log for long or unattended work. |
 | `typescript-best-practices` | Apply TypeScript conventions when reading or editing `.ts` and `.tsx`. |
-| `principle-attack-the-premise`, `principle-boundary-discipline`, `principle-fix-root-causes`, `principle-make-operations-idempotent`, `principle-prove-it-works`, `principle-sequence-verifiable-units`, `principle-type-system-discipline` | One principle each. |
+| `principle-attack-the-premise`, `principle-boundary-discipline`, `principle-build-the-lever`, `principle-encode-lessons-in-structure`, `principle-fix-root-causes`, `principle-foundational-thinking`, `principle-laziness-protocol`, `principle-make-operations-idempotent`, `principle-never-block-on-the-human`, `principle-prove-it-works`, `principle-redesign-from-first-principles`, `principle-sequence-verifiable-units`, `principle-type-system-discipline` | One principle each. |
 
 `principles` is original to this repo: a router that tells Claude which principle skill to read for the situation at hand.
 
@@ -37,15 +37,26 @@ All hooks are Python 3 scripts with no dependencies. Enabling the plugin enables
 | Hook | Event | Effect |
 |---|---|---|
 | `quiet-output` | PreToolUse (Bash) | Wraps noisy build, test and install commands so only errors, warnings and the summary come back. Rewrites the command. |
-| `implement-review-gate` | PreToolUse (Bash) | Denies `git commit` after `/implement` until `mattpocock-skills:code-review` has run. Needs the `mattpocock-skills` plugin. |
+| `implement-review-gate` | PreToolUse (Bash) | Denies `git commit` after `/mattpocock-skills:implement` until `mattpocock-skills:code-review` has run. Only the full skill name arms it. Needs the `mattpocock-skills` plugin. |
 | `bash-guard` | PreToolUse (Bash) | Denies `cd` into another directory, `pkill -f` without a bracketed pattern, `find /` and `--root /`. |
-| `hooks-write-guard` | PreToolUse (Bash) | Denies a Bash command that writes to `~/.claude/hooks`. It matches the raw command text, so a read-only command that names `.claude`, `hooks` and a write verb is denied too. |
-| `premise-guard` | PostToolUse, PostToolUseFailure (Bash) | After the third failure in a row of the same test or build command, points to `principle-attack-the-premise`. |
-| `advisor-leak-audit` | SubagentStop | Warns, and appends to `~/.claude/advisor-leaks.log`, when a subagent called the advisor tool. |
+| `hooks-write-guard` | PreToolUse (Bash) | Denies a Bash command that writes to `~/.claude/hooks`. It matches the path in the raw command text, not a shell parse, so a script that builds the path at run time slips through. |
+| `premise-guard` | PostToolUse, PostToolUseFailure (Bash) | After the third failure in a row of the same test or build command, points to `principle-attack-the-premise`. Keeps its counter in `<config dir>/state/desustack`. |
+| `advisor-leak-audit` | SubagentStop | Warns, and appends to `<config dir>/advisor-leaks.log` (trimmed to 1000 lines past 1 MB), when a subagent called the advisor tool. |
+
+`<config dir>` is `CLAUDE_CONFIG_DIR` when set, otherwise `~/.claude`.
+
+Run the hook evals with `bash plugins/desustack/tests/run.sh` (needs `python3` and `jq`).
 
 ## Agent
 
 `Explore`: read-only search agent pinned to `claude-haiku-5-5`. Edit the `model` line in `agents/Explore.md` if that model is not available to you.
+
+Plugin agents are namespaced, so this one is called `desustack:Explore` and does not replace the built-in `Explore`. To make the plain name `Explore` use these settings, copy `agents/Explore.md` to `~/.claude/agents/Explore.md`.
+
+## Requirements
+
+- `python3` on the PATH. The hooks are Python 3 scripts run directly through their shebang.
+- Linux and macOS. Windows is untested: a `.py` file is not run through a shebang there.
 
 ## Install
 
@@ -53,6 +64,8 @@ All hooks are Python 3 scripts with no dependencies. Enabling the plugin enables
 claude plugin marketplace add snooptheone/desu-ai-plugins
 claude plugin install desustack@desu-ai-plugins
 ```
+
+If you already run any of these hooks from your own `settings.json`, remove those entries after enabling the plugin. Otherwise each hook runs twice: `premise-guard` warns twice and `advisor-leak-audit` logs each leak twice.
 
 ## Credit
 

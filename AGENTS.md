@@ -70,7 +70,7 @@ A marketplace repo for Claude Code plugins. Currently ships three plugins:
 bash plugins/shunt-agy/evals/run.sh
 
 # End-to-end delegation + token-savings benchmark (needs authenticated agy):
-cd plugins/shunt-agy/evals && ./benchmark.sh
+bash plugins/shunt-agy/evals/benchmark.sh
 ```
 
 `evals/run.sh` covers `check-file-size` and `check-bash-read` (22 and 18 cases; the original 17 each are ported from
@@ -81,6 +81,9 @@ input requiring stream-json output). Run it before touching anything under `hook
 `scripts/`.
 
 CI (`.github/workflows/ci.yml`) runs `evals/run.sh` on every PR; it needs no `agy` auth.
+
+The `desustack` hooks have their own evals: `bash plugins/desustack/tests/run.sh` (needs `python3` and `jq`; CI runs it too).
+Run it before touching anything under `plugins/desustack/hooks/`.
 
 ### unifi end-to-end harness (`plugins/unifi/tests/e2e/`)
 

@@ -39,7 +39,7 @@ experience works. State what remains unverified.
 When the requested finish includes a PR, file or update it with the user's own
 PR-writing skill or the repo's conventions, and only when the user asked for it
 this turn. Then watch it with the harness's PR watcher, never your own polling
-loop. Use `pr-flow:leaving-pr-comments` for replies. Merge or close the original PR only
+loop. Use `desustack:leaving-pr-comments` for replies. Merge or close the original PR only
 when authorized.
 
 Report what you inherited, what you changed, how you verified it, how credit

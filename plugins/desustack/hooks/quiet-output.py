@@ -36,7 +36,7 @@ KEEP = (
 
 def wrap(cmd: str) -> str:
     return (
-        '__q=$(mktemp /tmp/quiet-output-XXXXXX.log); '
+        '__q=$(mktemp "${TMPDIR:-/tmp}/quiet-output.XXXXXX"); '
         f"( {cmd}\n) >\"$__q\" 2>&1; __rc=$?; "
         "tr '\\r' '\\n' <\"$__q\" >\"$__q.n\" && mv \"$__q.n\" \"$__q\"; "
         '__n=$(wc -l <"$__q"); '
@@ -50,19 +50,19 @@ def wrap(cmd: str) -> str:
 def main() -> None:
     try:
         ev = json.load(sys.stdin)
-    except ValueError:
-        return
-    if ev.get("tool_name") != "Bash":
-        return
-    cmd = ev.get("tool_input", {}).get("command", "")
-    if "quiet-output" in cmd or not NOISY.search(cmd) or SHAPED.search(cmd):
-        return
-    print(json.dumps({
-        "hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "updatedInput": {**ev["tool_input"], "command": wrap(cmd)},
-        }
-    }))
+        if ev.get("tool_name") != "Bash":
+            return
+        cmd = ev["tool_input"]["command"]
+        if "quiet-output" in cmd or not NOISY.search(cmd) or SHAPED.search(cmd):
+            return
+        print(json.dumps({
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "updatedInput": {**ev["tool_input"], "command": wrap(cmd)},
+            }
+        }))
+    except Exception:
+        return  # fail open: a malformed event just means the command runs as is
 
 
 if __name__ == "__main__":

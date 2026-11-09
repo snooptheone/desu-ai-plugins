@@ -20,6 +20,9 @@ jobs:
       - name: shunt-agy hook + transport evals
         run: bash plugins/shunt-agy/evals/run.sh
 
+      - name: desustack hook evals
+        run: bash plugins/desustack/tests/run.sh
+
   marketplace:
     runs-on: ubuntu-latest
     steps:

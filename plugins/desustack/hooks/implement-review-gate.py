@@ -4,10 +4,12 @@
 The implement skill lists "call code-review" as a plain line before "commit"; agents jumped
 from the test run to the commit. This turns that line into a gate.
 Needs the `mattpocock-skills` plugin (its `implement` and `code-review` skills).
+Fails open: if the hook crashes it prints a warning and lets the commit through.
 """
 import json, re, sys
 
-IMPLEMENT = {"implement", "mattpocock-skills:implement"}
+# Only the full name arms the gate: a bare `implement` may be someone else's skill, and the gate would then ask for a review skill they lack.
+IMPLEMENT = {"mattpocock-skills:implement"}
 # Only mattpocock's review counts: the bare `code-review` resolves to the built-in skill (inline, no subagents).
 REVIEW = {"mattpocock-skills:code-review"}
 CMD_NAME = re.compile(r"<command-name>/?([^<]+)</command-name>")
@@ -33,8 +35,12 @@ def invoked(entry):
     """Skill names invoked by this transcript entry: /slash command or Skill tool call."""
     msg = entry.get("message") or {}
     content = msg.get("content")
-    if entry.get("type") == "user" and isinstance(content, str):
-        return [m.strip() for m in CMD_NAME.findall(content)]
+    if entry.get("type") == "user":
+        # the message is plain text or a list of blocks; slash commands arrive both ways
+        text = content if isinstance(content, str) else " ".join(
+            b.get("text", "") for b in content or [] if isinstance(b, dict) and b.get("type") == "text"
+        )
+        return [m.strip() for m in CMD_NAME.findall(text)]
     if entry.get("type") == "assistant" and isinstance(content, list):
         return [
             (b.get("input") or {}).get("skill", "")
@@ -76,9 +82,5 @@ try:
 except SystemExit:
     pass
 except Exception as e:
-    # fail closed: a crashed gate must not let a commit through unreviewed
-    print(json.dumps({"hookSpecificOutput": {
-        "hookEventName": "PreToolUse",
-        "permissionDecision": "deny",
-        "permissionDecisionReason": f"implement-review-gate.py failed ({e!r}); fix the hook before committing.",
-    }}))
+    # fail open: a crashed gate must not block every commit; the user sees the warning
+    print(json.dumps({"systemMessage": f"implement-review-gate.py failed ({e!r}); the review gate is off for this commit."}))
